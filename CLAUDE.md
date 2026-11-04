@@ -3,9 +3,10 @@
 Thirty maps for the 30 Day Map Challenge, November 2026, on one shared base map.
 Static files and one vendored library. No build step.
 
-General coding rules are in `~/.claude/rules/code-quality.md`. This file is the
-project's own aesthetic and invariants, which that rule requires each project to
-record.
+General coding rules live outside this repo, in `~/.claude/rules/`:
+`code-design.md`, `verification.md` and `authoring-style.md`. This file is the
+project's own aesthetic and invariants, which `code-design.md` requires each
+project to record.
 
 ## Run and check
 
