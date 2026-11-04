@@ -82,10 +82,6 @@
       </button>
     </div>
 
-    <!-- Every basemap source requires attribution, so this is a licence term and nothing is
-         allowed to cover it. Filled by basemap.mjs, which owns the per-source credit. -->
-    <p id="map-attrib" class="map-attrib"></p>
-
     <aside class="detail" id="detail" aria-labelledby="detail-title" hidden>
       <div class="detail-head">
         <h2 id="detail-title"></h2>
@@ -94,6 +90,16 @@
       <div class="detail-body"></div>
       <p class="detail-foot"></p>
     </aside>
+  </div>
+
+  <!-- The window's status bar, and the only place the basemap credit lives.
+       Every source requires attribution, which makes it a licence term rather than a
+       nicety. Floated over the canvas it sat under the detail panel, which docks
+       bottom-right and is a layer above — so the credit vanished whenever anything was
+       selected. A status bar is outside the map entirely: nothing can cover it, at any
+       viewport, and an XP window had one anyway. -->
+  <div class="window-status">
+    <p id="map-attrib" class="map-attrib"></p>
   </div>
 </div>
 

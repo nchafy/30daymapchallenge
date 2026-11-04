@@ -297,22 +297,49 @@ input[type="text"], input[type="search"], select {
 #map-compass svg { display: block; width: 34px; height: 34px; }
 #map-compass[hidden] { display: none; }
 
-/* Attribution. Every source in `basemap.mjs` requires it, so this is a licence term and
-   not a nicety: nothing is allowed to cover it. */
+/* The window's status bar, which exists to hold the basemap credit.
+ *
+ * Every source in `basemap.mjs` requires attribution, so it is a licence term. It used to
+ * float over the canvas at `bottom: 0; right: 0; z-index: 4` — directly underneath the
+ * detail panel, which docks bottom-right at `z-index: 5`. The credit disappeared whenever
+ * anything was selected. Out here it is a sibling of the map rather than a layer over it,
+ * so no amount of chrome can cover it and there is no stacking order to get right.
+ *
+ * An XP window had a status bar regardless, so this costs nothing aesthetically: a sunken
+ * well on the bisque face, which is how Luna drew one. */
+.window-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 3px;
+  background: var(--face);
+  border-top: 1px solid var(--raised);
+}
 .map-attrib {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  z-index: 4;
   margin: 0;
-  padding: .1rem .4rem;
-  max-width: min(34rem, 70vw);
+  flex: 1 1 auto;
+  padding: 1px .4rem;
   font-size: 10px;
-  line-height: 1.5;
-  background: var(--attrib-bg);
+  line-height: 1.4;
   color: var(--ink);
+  /* The sunken panel: dark top-left edge against a light bottom-right one, the inverse of
+     a raised control. */
+  border: 1px solid var(--sunk);
+  border-right-color: var(--raised);
+  border-bottom-color: var(--raised);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .map-attrib a { color: var(--accent); }
+
+/* Below this the credit needs its full height rather than one ellipsised line: on a phone
+   the Esri and OpenTopoMap strings are three lines, and truncating a licence term is the
+   thing this whole block exists to avoid. */
+@media (max-width: 34rem) {
+  .map-attrib { white-space: normal; overflow: visible; }
+}
 
 /* The live region that narrates state changes. Visible, because a status line is also how
    a sighted reader learns the basemap changed or failed.

@@ -110,8 +110,18 @@ Two of the three need reading before this goes anywhere public.
   downloading; a scripted sweep of a city at zoom 17 would be.
 
 Attribution is rendered by `basemap.mjs` into `#map-attrib`, not by MapLibre's own
-control. It is a licence term, so the stylesheet gives it the highest `z-index` in the
-window and nothing is allowed to cover it — including the detail panel on a phone.
+control, and `#map-attrib` lives in the window's **status bar** — outside the map, as a
+sibling of it rather than a layer over it.
+
+That placement is the whole point. It used to float over the canvas at `bottom: 0;
+right: 0; z-index: 4`, which is exactly where the detail panel docks at `z-index: 5`:
+the credit disappeared the moment anything was selected, on every viewport, and nothing
+caught it for a day. A status bar cannot be covered at any size and has no stacking order
+to get wrong — and an XP window had one anyway.
+
+`scripts/check.py` now asserts this with `elementFromPoint` at three points across the
+strip, with the panel both shut and open. That question — "what would the reader's cursor
+actually hit here?" — is the one a `visibility` or `z-index` comparison does not answer.
 
 ## Writing a day
 
@@ -169,7 +179,19 @@ Loads every page in the Chrome already on the machine, screenshots each at 500 p
 - the compass rose is rotated by `-bearing` (a needle rotated the other way looks
   plausible and points at the wrong quarter of the sky), pressing it returns the bearing
   to 0, and ArrowRight on the focused compass turns the view;
+- the basemap credit is on screen and nothing is on top of it, panel open and shut;
 - clicking the map opens the panel with four rows in it.
+
+It also refuses to start when something else is already listening on its port. That is
+not politeness: `http.server` exits immediately when the port is taken, the readiness
+probe then succeeds against whatever *was* listening, and the run silently measures
+another checkout. It happened — a server left over from a second worktree made a real fix
+look broken and a deliberately reintroduced bug look caught, in the same session. The
+probe binds with `SO_REUSEADDR`, which clears a harmless `TIME_WAIT` socket from the
+previous run but still refuses a live listener.
+
+A harness MUST fail when it cannot test the thing it was pointed at. Silence there costs
+more than the bug it was hiding.
 
 `scripts/cdp.py` is copied from the author's Show Up NYC project. It drives the system
 Chrome over the DevTools Protocol, because a check harness that installs its own browser

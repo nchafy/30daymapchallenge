@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import socket
 import subprocess
 import sys
 import time
@@ -379,6 +380,57 @@ def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
     return failures
 
 
+def check_attribution(page, viewport: str) -> list[str]:
+    """The basemap credit must be on screen, and nothing may be on top of it.
+
+    Attribution is a licence term for all three sources. It used to float over the canvas at
+    bottom-right, which is exactly where the detail panel docks, one stacking layer above —
+    so the credit vanished the moment anything was selected and no check noticed for a day.
+    `elementFromPoint` is the assertion that matters: it answers what the reader's cursor
+    would actually hit, which a visibility or z-index comparison does not.
+    """
+    failures = []
+    state = page.evaluate(
+        """(() => {
+          const el = document.getElementById('map-attrib');
+          if (!el) return { missing: true };
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          // Several points across the strip, not just the middle: a panel covering one end
+          // would otherwise pass.
+          const probes = [0.1, 0.5, 0.9].map((f) => {
+            const x = r.left + r.width * f;
+            const y = r.top + r.height / 2;
+            const hit = document.elementFromPoint(x, y);
+            return hit ? (hit === el || el.contains(hit) ? 'self' : hit.className || hit.tagName) : 'none';
+          });
+          return {
+            text: el.textContent.trim().length,
+            box: [Math.round(r.width), Math.round(r.height)],
+            onScreen: r.top >= 0 && r.bottom <= window.innerHeight && r.width > 0 && r.height > 0,
+            visibility: cs.visibility,
+            display: cs.display,
+            probes,
+          };
+        })()"""
+    )
+    if state.get("missing"):
+        return [f"attrib/{viewport}: #map-attrib is not in the document"]
+    if not state["text"]:
+        failures.append(f"attrib/{viewport}: credit is empty")
+    if not state["onScreen"]:
+        failures.append(f"attrib/{viewport}: credit is off screen, box {state['box']}")
+    if state["visibility"] != "visible" or state["display"] == "none":
+        failures.append(
+            f"attrib/{viewport}: credit is {state['visibility']}/{state['display']}"
+        )
+    covered = [p for p in state["probes"] if p != "self"]
+    if covered:
+        failures.append(f"attrib/{viewport}: credit is covered by {covered}")
+    print(f"  attribution {viewport}: box={state['box']} hits={state['probes']}")
+    return failures
+
+
 def settle(page, timeout: float = 30.0) -> None:
     """Wait for tiles, then a beat for the first paint of them."""
     deadline = time.monotonic() + timeout
@@ -428,6 +480,35 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(exist_ok=True)
     base = f"http://127.0.0.1:{args.port}"
 
+    # Refuse to run against a server this script did not start.
+    #
+    # `http.server` exits immediately when the port is taken, and the readiness probe below
+    # then succeeds against whatever was already listening. That happened: a server left
+    # running from another worktree served *its* files, so a real fix looked broken and a
+    # deliberately reintroduced bug looked caught. Both runs measured stale code and the
+    # harness reported neither.
+    #
+    # Claiming the port here is the check. If it is held, say by whom and stop.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # SO_REUSEADDR draws the line in the right place: it binds over a socket left in
+    # TIME_WAIT by the previous run, which is harmless, but still fails against a process
+    # actually LISTENing, which is the thing worth refusing. `http.server` sets the same
+    # option, so this probe succeeds exactly where the real server would.
+    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        probe.bind(("127.0.0.1", args.port))
+    except OSError:
+        print(
+            f"port {args.port} is already in use, so this run would test whatever is\n"
+            f"already serving there rather than this checkout. Free it first:\n"
+            f"  lsof -nP -iTCP:{args.port} -sTCP:LISTEN\n"
+            f"  pkill -f 'http.server {args.port}'",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        probe.close()
+
     # Loopback only. Nothing here is meant to be reachable from another machine.
     server = subprocess.Popen(
         [sys.executable, "-m", "http.server", str(args.port), "--bind", "127.0.0.1"],
@@ -439,6 +520,14 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     try:
         for _ in range(60):
+            # The server dying is not the same as the server being slow, and only one of
+            # the two is worth waiting out.
+            if server.poll() is not None:
+                print(
+                    f"the server exited with {server.returncode} before serving anything",
+                    file=sys.stderr,
+                )
+                return 1
             try:
                 urllib.request.urlopen(base + "/", timeout=5)
                 break
@@ -446,6 +535,18 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(0.1)
         else:
             print("server did not come up", file=sys.stderr)
+            return 1
+
+        # Served from this checkout, not another one. A file every page needs, fetched
+        # through the same URL the browser will use.
+        marker = "/CLAUDE.md"
+        try:
+            with urllib.request.urlopen(base + marker, timeout=5) as response:
+                if b"30daymapchallenge" not in response.read(400):
+                    print(f"{marker} served unexpected content", file=sys.stderr)
+                    return 1
+        except OSError as error:
+            print(f"{marker} is not being served ({error})", file=sys.stderr)
             return 1
 
         with Browser() as browser:
@@ -480,6 +581,9 @@ def main(argv: list[str] | None = None) -> int:
                 page.evaluate("window.localStorage.clear()")
                 page.navigate(base + MAP_PAGE)
                 state = wait_for_map(page, "simple")
+
+                # With nothing selected, before the panel is ever opened.
+                failures += check_attribution(page, f"{viewport}/panel-shut")
 
                 # Click the map before switching, so there is an overlay feature whose
                 # survival across a `setStyle` can actually be observed.
@@ -563,6 +667,10 @@ def main(argv: list[str] | None = None) -> int:
                         f"base/{viewport}: panel has {opened['rows']} rows, want 4"
                     )
                 failures += [f"base/{viewport}/click: {e}" for e in console_errors(page)]
+
+                # With the panel open, which is the state that used to hide the credit.
+                failures += check_attribution(page, f"{viewport}/panel-open")
+
                 size = shoot(page, out_dir / f"base-panel-{viewport}.png")
                 print(
                     f"  base-panel-{viewport}.png  {size // 1024} KB  "
