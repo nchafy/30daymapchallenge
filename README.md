@@ -44,25 +44,34 @@ afternoon.
 
 ## The look
 
-The window frame, the taskbar and the Start menu are Windows XP (Luna). The map inside
-them is [OpenFreeMap](https://openfreemap.org/) `liberty`, Esri imagery, or OpenTopoMap,
-each as published.
+An early-2000s car satnav in a Windows XP window.
 
-That split was a correction. The first version repainted the map itself into an
-early-2000s satnav palette and stripped its roads, which read as neither one thing nor
-the other and lost every park in the city. The chrome is the costume; the map underneath
-should be a map.
+The frame, the taskbar and the Start menu are Luna. The `simple` basemap is
+[OpenFreeMap](https://openfreemap.org/) `liberty` with a paint-only satnav palette over
+it — flat olive land, deep navy water, bright yellow arterials — and no layer removed,
+because a GPS screen was mostly roads. `satellite` is Esri imagery and `geography` is
+OpenTopoMap, both as published.
+
+Those screens also leaned. **Tilt** eases the camera to a bird's-eye, the compass turns
+the heading and resets to north, and the 3D buildings appear *only* from an angle: at
+pitch 0 you look straight down the top of each block and an extrusion reads as a smeared
+blob beside its own footprint.
 
 Luna's own palette failed WCAG 2.2 AA in two places — its grey body text and the light
 stop of its close box — and both are corrected in `xp.css`, with the measured ratio noted
-where it was the reason for a value.
+where it was the reason for a value. Navy water broke liberty's water labels the same way,
+and those are re-coloured in `basemap.mjs`.
 
 ## Accessibility
 
-Every control has a name, the basemap switcher is a real `aria-pressed` group, the status
-line is a live region, and the detail panel's tables use `th[scope]` rather than a dash
-between a label and its value. Targets are 24 px, which is why the title-bar boxes are
-not the 21 px Luna drew.
+Every control has a name, the basemap switcher and Tilt are real `aria-pressed` controls,
+the status line is a live region, and the detail panel's tables use `th[scope]` rather
+than a dash between a label and its value. Targets are 24 px, which is why the title-bar
+boxes are not the 21 px Luna drew.
+
+Every camera gesture is a drag, so the compass carries a keyboard path: focus it and the
+arrow keys turn the view 15° at a time. Its accessible name carries the live bearing,
+because the needle itself is `aria-hidden`.
 
 The map needs WebGL 2. Without it the page says so rather than showing an empty box.
 

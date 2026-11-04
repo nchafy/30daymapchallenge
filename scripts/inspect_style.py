@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
-"""Report what a basemap style draws for green space, and at which zooms.
+"""Dump a basemap style's layers, so a repaint targets ids that exist.
 
-Written to answer one complaint: Central Park, Prospect Park and Flushing Meadows are not
-green on the `simple` basemap. A style's own layer list is the only place that answers why,
-and reading it beats guessing at paint overrides.
+Two things this answers that guessing does not: which layer ids carry colour (liberty's are
+not positron's, so a palette copied between them silently does nothing), and which layers
+are `fill-extrusion` — the 3D buildings, which have to be gated on camera pitch.
 
-    python3 scripts/inspect_style.py positron liberty bright
+    python3 scripts/inspect_style.py liberty            # grouped summary
+    python3 scripts/inspect_style.py liberty --json out.json
 """
 
 from __future__ import annotations
 
+import argparse
 import json
-import sys
 import urllib.request
+from collections import defaultdict
 
 BASE = "https://tiles.openfreemap.org/styles/"
 
-#: Source layers in the OpenMapTiles schema that can carry a park, a wood or a meadow.
-GREEN_SOURCE_LAYERS = {"park", "landcover", "landuse"}
+#: Paint keys that carry a colour worth overriding.
+COLOUR_KEYS = (
+    "background-color",
+    "fill-color",
+    "fill-outline-color",
+    "line-color",
+    "fill-extrusion-color",
+)
 
 
 def fetch(name: str) -> dict:
@@ -31,26 +39,46 @@ def fetch(name: str) -> dict:
         return json.loads(response.read())
 
 
-def report(name: str) -> None:
+def summarise(name: str, dump: str | None) -> None:
     style = fetch(name)
     layers = style.get("layers", [])
-    print(f"\n=== {name}: {len(layers)} layers ===")
+    if dump:
+        with open(dump, "w", encoding="utf-8") as handle:
+            json.dump(style, handle, indent=2)
+        print(f"{name}: {len(layers)} layers -> {dump}")
+
+    by_type: dict[str, list] = defaultdict(list)
     for layer in layers:
-        source_layer = layer.get("source-layer")
-        if source_layer not in GREEN_SOURCE_LAYERS:
-            continue
-        paint = layer.get("paint") or {}
+        by_type[layer["type"]].append(layer)
+
+    print(f"\n=== {name}: {len(layers)} layers ===")
+    print("by type: " + ", ".join(f"{k}={len(v)}" for k, v in sorted(by_type.items())))
+
+    extrusions = by_type.get("fill-extrusion", [])
+    print(f"\n-- fill-extrusion ({len(extrusions)}) : the 3D layers --")
+    for layer in extrusions:
         print(
-            f"  {layer['id']:<34} src={source_layer:<10} type={layer['type']:<6} "
-            f"minzoom={layer.get('minzoom', '-'):<4} maxzoom={layer.get('maxzoom', '-')}"
+            f"  {layer['id']:<22} src={layer.get('source-layer')} "
+            f"minzoom={layer.get('minzoom', '-')}"
         )
-        if layer.get("filter"):
-            print(f"      filter {json.dumps(layer['filter'])[:150]}")
-        for key in ("fill-color", "fill-opacity", "line-color", "background-color"):
-            if key in paint:
-                print(f"      {key}: {json.dumps(paint[key])[:150]}")
+        for key, value in (layer.get("paint") or {}).items():
+            print(f"      {key}: {json.dumps(value)[:110]}")
+
+    print("\n-- layers carrying a colour --")
+    for layer in layers:
+        paint = layer.get("paint") or {}
+        colours = {k: v for k, v in paint.items() if k in COLOUR_KEYS}
+        if not colours:
+            continue
+        shown = "  ".join(f"{k.split('-')[-2] if False else k}={json.dumps(v)[:46]}"
+                          for k, v in colours.items())
+        print(f"  {layer['id']:<30} {layer['type']:<14} {shown}")
 
 
 if __name__ == "__main__":
-    for arg in sys.argv[1:] or ["positron"]:
-        report(arg)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("styles", nargs="*", default=["liberty"])
+    parser.add_argument("--json", dest="dump")
+    args = parser.parse_args()
+    for style_name in args.styles or ["liberty"]:
+        summarise(style_name, args.dump)

@@ -37,16 +37,33 @@
           <button type="button" data-basemap="satellite" aria-pressed="false">Satellite</button>
           <button type="button" data-basemap="geography" aria-pressed="false">Geography</button>
         </div>
+        <!-- Delete this row for a day that must stay flat, and pass `tilt: false` in
+             map.mjs so the gesture goes too. -->
+        <div class="tilt-row">
+          <button type="button" id="map-tilt" aria-pressed="false">Tilt</button>
+        </div>
       </div>
       <!-- The day's own controls go in a second card here. -->
+      <!-- Under the control card, in the same flex column, so it can never land on top of
+           a control whose size changed. -->
+      <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
     </div>
 
     <div class="map-zoom">
       <button type="button" id="map-zoom-in" aria-label="Zoom in">+</button>
       <button type="button" id="map-zoom-out" aria-label="Zoom out">&#8722;</button>
+      <button type="button" id="map-compass" aria-label="Facing north. Press to reset, arrow keys to turn">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="34" height="34">
+          <circle cx="12" cy="12" r="10.5" fill="none" stroke="#8a8a6a" stroke-width="1"/>
+          <g id="map-compass-rose" transform="rotate(0 12 12)">
+            <polygon points="12,2.5 15.2,12 12,9.8 8.8,12" fill="#c8341a"/>
+            <polygon points="12,21.5 8.8,12 12,14.2 15.2,12" fill="#6b6b55"/>
+          </g>
+          <circle cx="12" cy="12" r="1.1" fill="#3a3a3a"/>
+        </svg>
+      </button>
     </div>
 
-    <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
     <p id="map-attrib" class="map-attrib"></p>
 
     <aside class="detail" id="detail" aria-labelledby="detail-title" hidden>

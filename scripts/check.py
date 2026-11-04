@@ -183,12 +183,7 @@ def check_parks(page, viewport: str, out_dir: Path) -> list[str]:
             f"(() => {{ window.base.map.jumpTo("
             f"{{ center: [{lon}, {lat}], zoom: 13 }}); return null; }})()"
         )
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            if page.evaluate("window.base.map.areTilesLoaded()"):
-                break
-            time.sleep(0.25)
-        time.sleep(1.0)
+        settle(page)
 
         found = page.evaluate(
             """(() => {
@@ -209,6 +204,189 @@ def check_parks(page, viewport: str, out_dir: Path) -> list[str]:
         size = shoot(page, out_dir / f"park-{slug}-{viewport}.png")
         print(f"  park-{slug}-{viewport}.png  {size // 1024} KB  green={green}")
     return failures
+
+
+def check_tilt(page, viewport: str, out_dir: Path) -> list[str]:
+    """3D buildings must be hidden looking straight down and visible from an angle.
+
+    The owner's rule (2026-11-04): a `fill-extrusion` seen at pitch 0 is viewed down the top
+    of itself, so its walls collapse and it reads as a smeared blob beside its own footprint.
+    Gated on the camera, not on a button, so a drag-pitch and the Tilt button agree.
+
+    Zoom 15, because liberty's `building-3d` carries `minzoom: 14` and there is nothing to
+    assert below it.
+    """
+    failures = []
+
+    def extrusion_visibility() -> list:
+        return page.evaluate(
+            """(() => {
+              const map = window.base.map;
+              return (map.getStyle().layers || [])
+                .filter((l) => l.type === 'fill-extrusion')
+                .map((l) => [l.id, map.getLayoutProperty(l.id, 'visibility') || 'visible']);
+            })()"""
+        )
+
+    # Manhattan, where there are buildings to extrude.
+    page.evaluate(
+        "(() => { window.base.map.jumpTo("
+        "{ center: [-73.9845, 40.7549], zoom: 15, pitch: 0, bearing: 0 }); return null; })()"
+    )
+    settle(page)
+    flat = extrusion_visibility()
+    if not flat:
+        failures.append(f"tilt/{viewport}: basemap ships no fill-extrusion layer to gate")
+    for layer_id, visibility in flat:
+        if visibility != "none":
+            failures.append(
+                f"tilt/{viewport}: {layer_id} is '{visibility}' at pitch 0, want 'none'"
+            )
+    size = shoot(page, out_dir / f"tilt-flat-{viewport}.png")
+    print(f"  tilt-flat-{viewport}.png  {size // 1024} KB  pitch=0 {flat}")
+
+    # Through the button, so the control is covered and not just the camera API.
+    page.evaluate("(() => { document.getElementById('map-tilt').click(); return null; })()")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if page.evaluate("window.base.map.getPitch()") >= 12:
+            break
+        time.sleep(0.2)
+    settle(page)
+    pitched = extrusion_visibility()
+    pitch = page.evaluate("window.base.map.getPitch()")
+    if pitch < 12:
+        failures.append(f"tilt/{viewport}: Tilt button left pitch at {pitch:.1f}")
+    for layer_id, visibility in pitched:
+        if visibility != "visible":
+            failures.append(
+                f"tilt/{viewport}: {layer_id} is '{visibility}' at pitch {pitch:.0f}, "
+                "want 'visible'"
+            )
+    pressed = page.evaluate(
+        "document.getElementById('map-tilt').getAttribute('aria-pressed')"
+    )
+    if pressed != "true":
+        failures.append(f"tilt/{viewport}: Tilt button aria-pressed={pressed!r} while pitched")
+    size = shoot(page, out_dir / f"tilt-pitched-{viewport}.png")
+    print(f"  tilt-pitched-{viewport}.png  {size // 1024} KB  pitch={pitch:.0f} {pitched}")
+
+    # And the gate must survive a basemap switch, which resets every layer's visibility.
+    page.evaluate(
+        "(() => { document.querySelector('[data-basemap=\"satellite\"]').click(); "
+        "return null; })()"
+    )
+    wait_for_map(page, "satellite")
+    page.evaluate(
+        "(() => { document.querySelector('[data-basemap=\"simple\"]').click(); return null; })()"
+    )
+    wait_for_map(page, "simple")
+    settle(page)
+    after = extrusion_visibility()
+    for layer_id, visibility in after:
+        if visibility != "visible":
+            failures.append(
+                f"tilt/{viewport}: {layer_id} is '{visibility}' after a basemap round trip "
+                "while still pitched, want 'visible'"
+            )
+    print(f"  (gate after basemap round trip: {after})")
+
+    page.evaluate(
+        "(() => { window.base.map.jumpTo({ pitch: 0, bearing: 0 }); return null; })()"
+    )
+    settle(page)
+    return failures
+
+
+def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
+    """The needle must track the bearing, and pressing it must face north again.
+
+    The rose is rotated by `-bearing`, because MapLibre's bearing is the direction that is up
+    the screen: at bearing 90 east is up and true north is 90 degrees anticlockwise of it. A
+    needle rotated the other way looks plausible and points at the wrong quarter of the sky,
+    which is the one bug worth a gate here.
+    """
+    failures = []
+
+    def rose_angle():
+        return page.evaluate(
+            """(() => {
+              const g = document.getElementById('map-compass-rose');
+              const m = g && /rotate\\(\\s*(-?[\\d.]+)/.exec(g.getAttribute('transform') || '');
+              return m ? parseFloat(m[1]) : null;
+            })()"""
+        )
+
+    page.evaluate(
+        "(() => { window.base.map.jumpTo({ bearing: 90, pitch: 0 }); return null; })()"
+    )
+    time.sleep(0.5)
+    angle = rose_angle()
+    bearing = page.evaluate("window.base.map.getBearing()")
+    if angle is None:
+        failures.append(f"compass/{viewport}: no rose transform to read")
+    elif abs(angle - (-bearing)) > 1:
+        failures.append(
+            f"compass/{viewport}: rose at {angle} for bearing {bearing}, want {-bearing}"
+        )
+    label = page.evaluate("document.getElementById('map-compass').getAttribute('aria-label')")
+    if "90" not in (label or ""):
+        failures.append(f"compass/{viewport}: aria-label does not carry the bearing: {label!r}")
+    settle(page)
+    size = shoot(page, out_dir / f"compass-rotated-{viewport}.png")
+    print(f"  compass-rotated-{viewport}.png  {size // 1024} KB  bearing={bearing:.0f} rose={angle}")
+
+    # Clicking it faces north.
+    page.evaluate("(() => { document.getElementById('map-compass').click(); return null; })()")
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if abs(page.evaluate("window.base.map.getBearing()")) < 0.5:
+            break
+        time.sleep(0.2)
+    bearing = page.evaluate("window.base.map.getBearing()")
+    if abs(bearing) > 0.5:
+        failures.append(f"compass/{viewport}: click left bearing at {bearing:.1f}, want 0")
+    angle = rose_angle()
+    if angle is not None and abs(angle) > 1:
+        failures.append(f"compass/{viewport}: rose at {angle} after reset, want 0")
+    print(f"  (compass click -> bearing {bearing:.1f}, rose {angle})")
+
+    # Arrow keys turn the view, which is the only rotation a keyboard can reach.
+    page.evaluate("(() => { document.getElementById('map-compass').focus(); return null; })()")
+    page.call(
+        "Input.dispatchKeyEvent",
+        type="rawKeyDown",
+        key="ArrowRight",
+        code="ArrowRight",
+        windowsVirtualKeyCode=39,
+        nativeVirtualKeyCode=39,
+    )
+    page.call("Input.dispatchKeyEvent", type="keyUp", key="ArrowRight", code="ArrowRight")
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if abs(page.evaluate("window.base.map.getBearing()")) > 1:
+            break
+        time.sleep(0.2)
+    turned = page.evaluate("window.base.map.getBearing()")
+    if abs(turned) < 1:
+        failures.append(
+            f"compass/{viewport}: ArrowRight on the focused compass did not turn the view "
+            f"(bearing {turned:.1f})"
+        )
+    print(f"  (ArrowRight -> bearing {turned:.1f})")
+
+    page.evaluate("(() => { window.base.map.jumpTo({ bearing: 0 }); return null; })()")
+    return failures
+
+
+def settle(page, timeout: float = 30.0) -> None:
+    """Wait for tiles, then a beat for the first paint of them."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if page.evaluate("window.base.map.areTilesLoaded()"):
+            break
+        time.sleep(0.25)
+    time.sleep(1.0)
 
 
 def click_centre(page) -> None:
@@ -343,6 +521,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 wait_for_map(page, "simple")
                 failures += check_parks(page, viewport, out_dir)
+
+                # 3D buildings, gated on the camera angle.
+                failures += check_tilt(page, viewport, out_dir)
+
+                # Compass orientation.
+                failures += check_compass(page, viewport, out_dir)
 
                 # The choice has to survive a reload, which is what makes it survive moving
                 # between days. `geography` and not `simple`, because `simple` is also the

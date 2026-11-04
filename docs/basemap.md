@@ -20,6 +20,34 @@ returning the layer id a day's overlay is inserted before.
 The reader's choice is remembered in `localStorage` under `30dmc:basemap`, so it
 survives moving between days. A page MAY force one with `basemap: 'satellite'`.
 
+## The camera: tilt, 3D and the compass
+
+The `simple` basemap is an early-2000s car satnav, and those had two things a web map
+usually does not: a bird's-eye lean and a heading you could turn.
+
+- **Tilt** is on by default. Drag with ctrl held (or the right button), two-finger
+  drag on touch, or press **Tilt**, which eases between pitch 0 and 55. A day that must
+  stay flat and north-up passes `tilt: false`, which also hides the Tilt button and the
+  compass — a compass that indicates something you cannot change is furniture.
+- **Rotate** is the same gesture set, plus the compass: pressing it faces north, and the
+  arrow keys turn the view 15° while it has focus. That keyboard path is the only
+  rotation a keyboard can reach, since every other route is a drag.
+- **3D buildings appear only from an angle.** liberty draws `building-3d` as a
+  `fill-extrusion` from zoom 14. Seen at pitch 0 you are looking straight down the top of
+  each block: the walls collapse and it reads as a smeared grey shape offset from its own
+  footprint. So the extrusion layers are gated on camera pitch — visible at 12° and above,
+  hidden below 8°. Two thresholds and not one, because a single cutoff makes the buildings
+  strobe while a drag-pitch sits on it.
+
+The gate is driven by the camera, never by the button: pressing **Tilt** and dragging to
+the same angle give the same result by construction. It is re-asserted after every style
+load, because `setStyle` brings a fresh style's layers back visible.
+
+The extrusion layers are found by `type === 'fill-extrusion'` rather than by name, so a
+basemap shipping more than one is covered. The flat `building` fill underneath is left
+alone — in 3D the extrusions cover their own footprints, and toggling both would flicker
+two layers instead of one.
+
 ### Why `liberty` and not `positron`
 
 `positron` was the first choice and was wrong. Measured with
@@ -35,16 +63,32 @@ paint override can put back a layer that was never in the style. positron is a
 deliberately monochrome canvas style; it is the right basemap for a choropleth and
 the wrong one for a general-purpose map.
 
-An earlier version also stripped liberty's road layers and repainted land, water and
-parks into an early-2000s satnav palette, to match the XP chrome. The owner's verdict
-(2026-11-04) was that it did not look right, with
-[openfreemap.org](https://openfreemap.org/) — which is `liberty`, as published — given
-as the reference. The style is now used unmodified.
-
-**The chrome is the costume. The map underneath should be a map.**
-
 `scripts/check.py` asserts that all three parks render green space, so this cannot
 regress quietly.
+
+### The satnav palette
+
+`simple` is liberty with a paint-only override, `SATNAV` in `assets/basemap.mjs`: flat
+olive land, deep navy water, arterials in a yellow that carries at arm's length. Every
+key in it is a layer id measured out of liberty with `scripts/inspect_style.py` —
+positron's ids are different, which is why a palette written against positron silently
+did nothing here.
+
+This took three passes, and the two failures are worth recording:
+
+1. **Repainting positron, with its roads stripped.** Lost every park in the city, because
+   positron has no park colour to override, and lost the look it was imitating, because a
+   GPS screen was mostly roads.
+2. **Muting the palette** to keep a data overlay readable. The verdict was that it had
+   gone pale (2026-11-04). These screens were read at a glance in daylight through a
+   windscreen; nothing on them was subtle.
+
+So the palette is saturated, and no layer is removed. A day whose data needs a quiet
+backdrop should pick `geography`, or empty `SATNAV`.
+
+Navy water broke liberty's own water labels — `#495e91` on `#1b4b8f` measures about
+1.5:1 — so `water_name_*` and `waterway_line_label` are re-coloured to light text on a
+dark halo, about 12:1. A palette change that breaks a label is not finished.
 
 ## Licensing
 
@@ -120,6 +164,11 @@ Loads every page in the Chrome already on the machine, screenshots each at 500 p
 - the day's overlay layers exist after every switch, and the clicked point is still
   rendered — the `draw`-not-re-run regression;
 - Central Park, Prospect Park and Flushing Meadows all render green space;
+- `building-3d` is `none` at pitch 0 and `visible` at pitch 55, through the Tilt button,
+  and survives a basemap round trip while still pitched;
+- the compass rose is rotated by `-bearing` (a needle rotated the other way looks
+  plausible and points at the wrong quarter of the sky), pressing it returns the bearing
+  to 0, and ArrowRight on the focused compass turns the view;
 - clicking the map opens the panel with four rows in it.
 
 `scripts/cdp.py` is copied from the author's Show Up NYC project. It drives the system

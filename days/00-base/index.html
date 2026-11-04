@@ -44,7 +44,17 @@
           <button type="button" data-basemap="geography" aria-pressed="false">Geography</button>
         </div>
         <p id="hint">Click the map to read a coordinate.</p>
+        <!-- The tilt gesture is ctrl-drag on a desktop, which nobody finds, so there is a
+             button for it. It only moves the camera: the 3D buildings follow the angle,
+             not the button, so dragging to an angle gives the same result. -->
+        <div class="tilt-row">
+          <button type="button" id="map-tilt" aria-pressed="false">Tilt</button>
+          <span class="tilt-note">3D buildings show from an angle, past zoom 14.</span>
+        </div>
       </div>
+      <!-- Under the control card, in the same flex column, so it can never land on top of
+           a control whose size changed. -->
+      <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
     </div>
 
     <!-- A map control belongs on the map, not in a card. The visible glyph is a symbol, so
@@ -53,9 +63,24 @@
     <div class="map-zoom">
       <button type="button" id="map-zoom-in" aria-label="Zoom in">+</button>
       <button type="button" id="map-zoom-out" aria-label="Zoom out">&#8722;</button>
+      <!-- Indicator and control in one, as a compass has always been. The rose turns with
+           the map; pressing it faces north again. Focused, the arrow keys turn the view,
+           which is the only way to rotate without a ctrl-drag or two fingers.
+           The `g` is rotated through its SVG transform attribute, not a style attribute,
+           so the needle keeps working under a strict `style-src`. -->
+      <button type="button" id="map-compass" aria-label="Facing north. Press to reset, arrow keys to turn">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" width="34" height="34">
+          <circle cx="12" cy="12" r="10.5" fill="none" stroke="#8a8a6a" stroke-width="1"/>
+          <g id="map-compass-rose" transform="rotate(0 12 12)">
+            <!-- Red half is north, which needs no letter: it is the one convention every
+                 compass rose has kept. -->
+            <polygon points="12,2.5 15.2,12 12,9.8 8.8,12" fill="#c8341a"/>
+            <polygon points="12,21.5 8.8,12 12,14.2 15.2,12" fill="#6b6b55"/>
+          </g>
+          <circle cx="12" cy="12" r="1.1" fill="#3a3a3a"/>
+        </svg>
+      </button>
     </div>
-
-    <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
 
     <!-- Every basemap source requires attribution, so this is a licence term and nothing is
          allowed to cover it. Filled by basemap.mjs, which owns the per-source credit. -->

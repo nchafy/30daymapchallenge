@@ -242,6 +242,17 @@ button:active, .btn:active {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
 }
 
+/* The tilt control. Pressed means the camera is leaning, which the map sets — not the
+   button — so dragging to an angle lights it up too. */
+.tilt-row { display: flex; align-items: center; gap: .45rem; margin-top: .4rem; }
+.tilt-row button[aria-pressed="true"] {
+  background: linear-gradient(to bottom, var(--title-b), var(--title-a));
+  border-color: #0a1a4a;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
+}
+.tilt-note { font-size: 10px; color: var(--muted); }
+
 input[type="text"], input[type="search"], select {
   font: inherit;
   min-height: 23px;
@@ -274,6 +285,17 @@ input[type="text"], input[type="search"], select {
   font-size: 15px;
   line-height: 1;
 }
+/* The compass sits a little apart and a little larger than the zoom pair: it answers "which
+   way is up", not "how close am I", and at 28px the needle was too small to read an angle
+   off at a glance. 40px, which is also a comfortable drag-free tap target. */
+#map-compass {
+  width: 40px;
+  height: 40px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+#map-compass svg { display: block; width: 34px; height: 34px; }
+#map-compass[hidden] { display: none; }
 
 /* Attribution. Every source in `basemap.mjs` requires it, so this is a licence term and
    not a nicety: nothing is allowed to cover it. */
@@ -293,17 +315,19 @@ input[type="text"], input[type="search"], select {
 .map-attrib a { color: var(--accent); }
 
 /* The live region that narrates state changes. Visible, because a status line is also how
-   a sighted reader learns the basemap changed or failed. */
+   a sighted reader learns the basemap changed or failed.
+
+   A flex child of `.overlays`, not absolutely positioned. It used to sit above the zoom
+   stack at a hand-computed offset, which the compass promptly broke by making that stack
+   40 px taller — the message landed on top of the buttons. Stacking it under the control
+   card instead costs no arithmetic and cannot collide with a control again. */
 .map-status {
-  position: absolute;
-  left: .5rem;
-  bottom: calc(.5rem + 58px + 6px);
-  z-index: 3;
   margin: 0;
   padding: .15rem .45rem;
-  max-width: min(26rem, calc(100vw - 2rem));
+  max-width: min(26rem, calc(100vw - 1.5rem));
   font-size: 11px;
   background: var(--attrib-bg);
+  border: 1px solid var(--rule);
 }
 .map-status:empty { display: none; }
 
