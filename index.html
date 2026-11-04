@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>30 Day Map Challenge 2026</title>
+<meta name="description" content="Thirty maps for the 30 Day Map Challenge, November 2026, on one Windows XP themed base map.">
+<link rel="stylesheet" href="/assets/xp.css">
+<link rel="stylesheet" href="/assets/index.css">
+</head>
+<body>
+
+<div class="window">
+  <div class="window-title">
+    <svg class="window-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="7" fill="#3a6ea5" stroke="#dfe8f5" stroke-width="1"/>
+      <path d="M1 8h14M8 1c2.5 2 2.5 12 0 14M8 1C5.5 3 5.5 13 8 15" fill="none" stroke="#dfe8f5" stroke-width="1"/>
+    </svg>
+    <h1>30 Day Map Challenge &mdash; November 2026</h1>
+    <span class="spacer"></span>
+    <div class="title-buttons">
+      <span class="title-box is-decorative" aria-hidden="true">_</span>
+      <span class="title-box is-decorative" aria-hidden="true">&#9633;</span>
+      <span class="title-box close is-decorative" aria-hidden="true">&#10005;</span>
+    </div>
+  </div>
+
+  <div class="window-body index-body">
+    <div class="sheet">
+      <p class="lede">
+        Thirty maps, one base map. Every day is the same shell &mdash; three basemaps, a zoom
+        pair, a detail panel &mdash; with that day&rsquo;s data on top.
+      </p>
+
+      <fieldset class="group">
+        <legend>Start here</legend>
+        <p class="group-line"><a href="/days/00-base/">The base map</a>, with nothing on it.
+          Click it to read a coordinate, and switch basemaps to see the overlay redraw.</p>
+      </fieldset>
+
+      <fieldset class="group">
+        <legend>Days</legend>
+        <ol id="day-list" class="day-list">
+          <!-- Filled by index.mjs from assets/days.mjs. Without JavaScript this page is the
+               two links above, which is why they are not in the list. -->
+          <li><span class="todo"><span class="n">&mdash;</span><span class="theme">Loading the list&hellip;</span></span></li>
+        </ol>
+      </fieldset>
+
+      <p class="foot">
+        Themes from <a href="https://30daymapchallenge.com/" rel="noopener noreferrer">30daymapchallenge.com</a>.
+        Basemap sources and their licences are in <code>docs/basemap.md</code>.
+      </p>
+    </div>
+  </div>
+</div>
+
+<nav class="taskbar" aria-label="Challenge days">
+  <button type="button" class="start" id="start" aria-expanded="false" aria-controls="start-menu">start</button>
+  <div class="task-items">
+    <span class="task-button">30 Day Map Challenge</span>
+  </div>
+  <div class="tray"><span id="clock"></span></div>
+</nav>
+
+<div class="start-menu" id="start-menu" hidden>
+  <div class="start-menu-head">30 Day Map Challenge<small>1&ndash;30 November 2026</small></div>
+  <ol></ol>
+  <p class="start-menu-foot">Themes from 30daymapchallenge.com</p>
+</div>
+
+<script type="module" src="/assets/index.mjs"></script>
+</body>
+</html>

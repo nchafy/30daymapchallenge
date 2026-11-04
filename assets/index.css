@@ -1,0 +1,72 @@
+/* The index page only. Every day's page is a full-bleed map; this one is a document inside
+   the same window frame, so it is the one place that scrolls. */
+
+.index-body { overflow-y: auto; background: var(--face); }
+
+.sheet {
+  max-width: 44rem;
+  margin: 1rem auto;
+  padding: 1rem 1.2rem 1.2rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-top-color: var(--raised);
+  border-left-color: var(--raised);
+  box-shadow: inset -1px -1px 0 var(--raised), 1px 1px 0 var(--sunk);
+}
+
+.lede { margin: 0 0 1rem; }
+.sheet .group { margin-top: 1rem; }
+.sheet .group:first-of-type { margin-top: 0; }
+
+/* Two columns once there is room for them: thirty rows in one column is a scroll, and the
+   list is the page's whole point. */
+.day-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 1.4rem;
+}
+/* Two columns that read downwards, not across. The default row-major flow put 02, 04, 06
+   down the left-hand side, which is not how anyone reads a numbered list of thirty things.
+   16 rows splits 31 items into a column of 16 and a column of 15. */
+@media (min-width: 34rem) {
+  .day-list {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(16, auto);
+    grid-auto-flow: column;
+  }
+}
+/* The same rows the Start menu renders, so `.start-menu li a` and these have to agree. The
+   shared rules are in xp.css; these are the ones that differ on a white page. */
+.day-list li a,
+.day-list li .todo {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+  padding: .25rem .3rem;
+  min-height: 24px;
+  border-radius: 2px;
+}
+.day-list li a { color: var(--accent); text-decoration: none; }
+.day-list li a:hover,
+.day-list li a:focus-visible { background: var(--title-b); color: #fff; }
+.day-list li .n {
+  flex: 0 0 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.day-list li a:hover .n,
+.day-list li a:focus-visible .n { color: #dfe8f5; }
+.day-list li .theme { flex: 1 1 auto; }
+.day-list li .todo { color: var(--muted); }
+
+.foot { margin: 1.2rem 0 0; font-size: 11px; color: var(--muted); }
+.foot code {
+  font-family: "Lucida Console", Monaco, monospace;
+  font-size: 10px;
+  background: var(--face);
+  padding: 0 .2rem;
+}

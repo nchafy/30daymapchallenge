@@ -1,0 +1,604 @@
+/* Windows XP (Luna) chrome for a full-window map.
+ *
+ * Adapted from the Show Up NYC theme, decoupled from that project's content selectors. The
+ * palette is Luna's, with the two values Luna itself got wrong for contrast corrected: its
+ * grey body text and the light stop of its close box both fail WCAG 2.2 AA. Ratios are
+ * noted where they were the reason for a value.
+ *
+ * System fonts only. Tahoma is what Luna shipped and what macOS does not have, so Verdana
+ * is the fallback that keeps the metrics closest.
+ */
+
+:root {
+  --ink: #000;
+  --muted: #3a3a3a;          /* darkened from Luna's grey, which fails AA */
+  --rule: #919b9c;           /* XP control border */
+  --bg: #fff;
+  --accent: #0000cc;         /* the era's link blue, darkened to clear AA */
+  --face: #ece9d8;           /* XP control face, the "bisque" */
+  --title-a: #0a246a;        /* title bar, dark end */
+  --title-b: #3a6ea5;        /* title bar, light end */
+  --sunken: #7f9db9;         /* input border */
+  --raised: #fff;            /* the lit edge of a bevel, top-left */
+  --sunk: #b8b4a2;           /* the shaded edge, bottom-right */
+  --panel: #fcfcfa;          /* a record's own face, slightly off the page */
+  --attrib-bg: rgb(255 255 255 / 82%);
+  --start-a: #51a800;
+  --start-b: #2f7a00;
+  --desktop: #3a6ea5;
+
+  --taskbar-h: 30px;
+  --titlebar-h: 28px;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font: 13px/1.45 Tahoma, Verdana, Geneva, sans-serif;
+  color: var(--ink);
+  background: var(--desktop);
+  /* The map owns the viewport. A map inside a scrolling page steals the wheel: scrolling
+     the page zooms the map instead. */
+  overflow: hidden;
+}
+
+a { color: var(--accent); }
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  /* Luna's focus ring was a 1px dotted line, which fails SC 1.4.11. A white inset ring
+     with a dark halo reads on both the bisque chrome and the blue title bars. */
+  outline: 2px solid #fff;
+  outline-offset: -3px;
+  box-shadow: 0 0 0 2px var(--title-a);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   The window. One maximised XP window filling the desktop above the taskbar.
+   --------------------------------------------------------------------------- */
+
+.window {
+  position: fixed;
+  inset: 0 0 var(--taskbar-h) 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--face);
+  border: 1px solid var(--title-a);
+  border-bottom: 0;
+}
+
+.window-title {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  height: var(--titlebar-h);
+  padding: 0 .25rem 0 .5rem;
+  /* Four stops, not two: Luna's bar lightens sharply just under the top edge and then
+     ramps slowly back down, which a linear two-stop gradient does not reproduce. */
+  background: linear-gradient(to bottom, #0a246a 0%, #3f6fb5 8%, #2b5797 42%, #0a246a 100%);
+  border-bottom: 1px solid #06143c;
+  flex: 0 0 auto;
+}
+.window-title h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 55%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.window-title .spacer { flex: 1 1 auto; }
+.window-icon { flex: 0 0 auto; display: block; }
+
+/* The three title-bar boxes. Minimise and maximise are decorative — there is one window
+   and nowhere to minimise it to — so they are not buttons and not in the tab order. */
+.title-buttons { display: flex; gap: 2px; align-items: center; }
+/* 24px, not the 21px Luna drew at 96 dpi: the close box is a real target and SC 2.5.8
+   (WCAG 2.2 AA) wants 24x24 CSS px. The three boxes have to match, so all three grew. */
+.title-box {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  min-height: 0;
+  font: 700 11px/1 Tahoma, Verdana, sans-serif;
+  color: #fff;
+  border: 1px solid #0a1a4a;
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #6a9ad8 0%, #3a6ea5 48%, #1c4b85 100%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%);
+}
+.title-box.is-decorative { opacity: .85; pointer-events: none; }
+/* Lightest stop is #c8341a, not Luna's #e8785a: white on that measures 2.89:1 and the
+   glyph has to sit over it. Every stop here clears 4.5:1. */
+.title-box.close {
+  background: linear-gradient(to bottom, #c8341a 0%, #ad2a0e 55%, #8f1c06 100%);
+  border-color: #7a1a06;
+  cursor: pointer;
+}
+.title-box.close:active { background: linear-gradient(to bottom, #a52208, #c8341a); }
+
+/* ---------------------------------------------------------------------------
+   The map surface, and the chrome floating on it.
+   --------------------------------------------------------------------------- */
+
+.window-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* The sunken client area: a window's content sits below its frame. */
+  border-top: 1px solid var(--sunk);
+  box-shadow: inset 1px 1px 0 rgb(0 0 0 / 18%);
+}
+
+/* The map fills the client area.
+ *
+ * The child selector is load-bearing, not tidiness. MapLibre puts its own
+ * `maplibregl-map` class on the container, and the reduced copy of its stylesheet at the
+ * foot of this file sets `position: relative` on it. That rule and a bare `.map` have the
+ * same specificity, so source order decided it: `relative` won, `inset: 0` stopped
+ * applying, and the div collapsed to 0 px high. Tiles all fetched 200 and drew nowhere, on
+ * every basemap (measured 2026-11-04). `.window-body > .map` outranks a single class, so
+ * the positioning no longer depends on where MapLibre's rules happen to sit.
+ *
+ * The holding colour shows during a style load instead of a white flash. */
+.window-body > .map { position: absolute; inset: 0; }
+.map { background: #e8e0d8; }
+
+/* Floating chrome. The container ignores the pointer so clicks reach the canvas; each
+   child takes it back. */
+.overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  padding: .5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .5rem;
+}
+.overlays > * { pointer-events: auto; }
+
+/* A beveled panel floating on the map: light top-left edge, dark bottom-right. */
+.card {
+  background: var(--face);
+  border: 1px solid var(--rule);
+  border-top-color: var(--raised);
+  border-left-color: var(--raised);
+  box-shadow: inset -1px -1px 0 var(--raised), 2px 2px 5px rgb(0 0 0 / 28%);
+  padding: .5rem .6rem;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+}
+.card h2 {
+  margin: 0 0 .35rem;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0a2a5a;
+}
+.card p { margin: .25rem 0; }
+
+/* Group box: the fieldset-and-legend that is the era's way of titling a block. A titled
+   group reads as a record; a bulleted list reads as a dump. */
+.group {
+  margin: .5rem 0 0;
+  padding: .45rem .6rem .5rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--panel);
+}
+.group:first-child { margin-top: 0; }
+.group legend {
+  padding: 0 .3rem;
+  font-weight: 700;
+  font-size: 11px;
+  color: #0a2a5a;
+}
+.group-line { margin: .1rem 0; }
+
+/* ---------------------------------------------------------------------------
+   Controls.
+   --------------------------------------------------------------------------- */
+
+button, .btn {
+  font: inherit;
+  min-height: 23px;
+  padding: .15rem .7rem;
+  color: var(--ink);
+  background: linear-gradient(to bottom, var(--raised) 0%, var(--face) 45%, var(--sunk) 100%);
+  border: 1px solid #003c74;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--raised);
+  cursor: pointer;
+}
+button:active, .btn:active {
+  background: linear-gradient(to bottom, #cdc9b4 0%, #e3dfcd 100%);
+  box-shadow: inset 1px 1px 2px rgb(0 0 0 / 25%);
+}
+
+/* The basemap switcher. A radio group wearing tab clothes: exactly one basemap shows, so
+   the pressed state is the whole answer and `aria-pressed` carries it. */
+.layer-switch { display: flex; flex-wrap: wrap; gap: 3px; }
+.layer-switch button[aria-pressed="true"] {
+  background: linear-gradient(to bottom, var(--title-b), var(--title-a));
+  border-color: #0a1a4a;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
+}
+
+input[type="text"], input[type="search"], select {
+  font: inherit;
+  min-height: 23px;
+  padding: .2rem .35rem;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--sunken);
+  border-radius: 0;
+  box-shadow: inset 1px 1px 2px rgb(0 0 0 / 14%);
+}
+
+/* Zoom buttons, bottom-left over the canvas: a map control belongs on the map. */
+.map-zoom {
+  position: absolute;
+  left: .5rem;
+  bottom: .5rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* A text button's line box is taller than its glyph, so centring the box does not centre
+   what is drawn. Grid places the glyph itself. */
+.map-zoom button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* Attribution. Every source in `basemap.mjs` requires it, so this is a licence term and
+   not a nicety: nothing is allowed to cover it. */
+.map-attrib {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  margin: 0;
+  padding: .1rem .4rem;
+  max-width: min(34rem, 70vw);
+  font-size: 10px;
+  line-height: 1.5;
+  background: var(--attrib-bg);
+  color: var(--ink);
+}
+.map-attrib a { color: var(--accent); }
+
+/* The live region that narrates state changes. Visible, because a status line is also how
+   a sighted reader learns the basemap changed or failed. */
+.map-status {
+  position: absolute;
+  left: .5rem;
+  bottom: calc(.5rem + 58px + 6px);
+  z-index: 3;
+  margin: 0;
+  padding: .15rem .45rem;
+  max-width: min(26rem, calc(100vw - 2rem));
+  font-size: 11px;
+  background: var(--attrib-bg);
+}
+.map-status:empty { display: none; }
+
+/* ---------------------------------------------------------------------------
+   The detail panel. Docked right on a wide viewport, a bottom sheet on a phone.
+   --------------------------------------------------------------------------- */
+
+.detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(25rem, 42vw);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--face);
+  border-left: 1px solid var(--title-a);
+  box-shadow: -3px 0 8px rgb(0 0 0 / 25%);
+  transform: translateX(100%);
+  transition: transform 220ms ease-out;
+}
+.detail.is-open { transform: translateX(0); }
+.detail[hidden] { display: none; }
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 0 0 auto;
+  padding: .3rem .25rem .3rem .6rem;
+  /* Flat, not a gradient: a gradient across a 28px bar bands visibly and reads as an
+     artifact rather than as chrome. */
+  background: var(--title-a);
+  border-bottom: 1px solid #06143c;
+}
+.detail-head h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 45%);
+}
+.detail-body { flex: 1 1 auto; overflow-y: auto; padding: .6rem; }
+.detail-foot {
+  flex: 0 0 auto;
+  padding: .45rem .6rem;
+  border-top: 1px solid var(--sunk);
+  background: var(--face);
+  font-size: 11px;
+}
+.detail-foot:empty { display: none; }
+
+@media (max-width: 52rem) {
+  .detail {
+    top: auto;
+    width: auto;
+    left: 0;
+    max-height: 48%;
+    border-left: 0;
+    border-top: 1px solid var(--title-a);
+    transform: translateY(100%);
+  }
+  .detail.is-open { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* WCAG 2.3.3. */
+  .detail, .detail.is-open { transition: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Tables, for a panel whose data really has columns. Column rules only — row striping
+   would imply an order the data does not carry.
+   --------------------------------------------------------------------------- */
+
+.group-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.group-table caption {
+  margin: 0 0 .3rem;
+  text-align: left;
+  color: var(--muted);
+  font-size: 10px;
+}
+.group-table th, .group-table td {
+  padding: .2rem .45rem .2rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+.group-table thead th {
+  border-bottom: 1px solid var(--rule);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.group-table tbody th { font-weight: 400; padding-right: .6rem; }
+.group-table tbody tr + tr th,
+.group-table tbody tr + tr td { border-top: 1px solid #e8e6dc; }
+.group-table th:last-child, .group-table td:last-child { padding-right: 0; }
+
+/* Below this a three-column table stops fitting the panel, so every table collapses to
+   stacked rows: the header row is dropped and each cell is labelled by its `data-label`.
+   `attr()` keeps the label in the stylesheet, where a strict `style-src` can reach it. */
+@media (max-width: 26rem) {
+  .group-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .group-table tbody tr { display: block; padding: .3rem 0; }
+  .group-table tbody tr + tr { border-top: 1px solid var(--rule); }
+  .group-table tbody th, .group-table tbody td { display: block; border-top: 0; padding: 0 0 .1rem; }
+  .group-table tbody th { font-weight: 700; }
+  .group-table tbody td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+}
+
+/* ---------------------------------------------------------------------------
+   The taskbar.
+   --------------------------------------------------------------------------- */
+
+.taskbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--taskbar-h);
+  z-index: 10;
+  display: flex;
+  align-items: stretch;
+  gap: .4rem;
+  /* Luna's bar: a bright line at the very top, then the blue. */
+  background: linear-gradient(to bottom, #3f8cf3 0%, #2461d8 9%, #245edb 55%, #1941a5 100%);
+  border-top: 1px solid #90bdff;
+  padding-right: .25rem;
+  font-size: 12px;
+  color: #fff;
+}
+
+.start {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  padding: 0 1.1rem 0 .6rem;
+  min-height: 0;
+  font: italic 700 14px/1 Tahoma, Verdana, sans-serif;
+  color: #fff;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 45%);
+  background: linear-gradient(to bottom, #6cc53f 0%, var(--start-a) 42%, var(--start-b) 100%);
+  border: 0;
+  /* The bar's right edge was a curve, not a corner. */
+  border-radius: 0 9px 9px 0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 45%), 1px 0 3px rgb(0 0 0 / 35%);
+  cursor: pointer;
+}
+.start:active {
+  background: linear-gradient(to bottom, var(--start-b), var(--start-a));
+  box-shadow: none;
+}
+
+/* A window button in the bar: the current day. Pressed, because its window is focused. */
+.task-items { display: flex; align-items: center; gap: .3rem; flex: 1 1 auto; min-width: 0; }
+.task-button {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  max-width: 18rem;
+  min-height: 0;
+  margin: 3px 0;
+  padding: 0 .6rem;
+  font: inherit;
+  color: #fff;
+  background: linear-gradient(to bottom, #3c81ee 0%, #1c50b5 100%);
+  border: 1px solid #1941a5;
+  border-radius: 2px;
+  box-shadow: inset 1px 1px 2px rgb(0 0 0 / 30%);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The system tray: a sunken well with the clock in it. */
+.tray {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin: 3px 0;
+  padding: 0 .6rem;
+  background: linear-gradient(to bottom, #1346b4 0%, #1a5ad4 100%);
+  border-left: 1px solid #1034a0;
+  box-shadow: inset 1px 0 0 #4a8ae8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+   The Start menu, used as the day index.
+   --------------------------------------------------------------------------- */
+
+.start-menu {
+  position: fixed;
+  left: 0;
+  bottom: var(--taskbar-h);
+  z-index: 11;
+  width: min(23rem, 92vw);
+  max-height: min(34rem, calc(100vh - var(--taskbar-h) - 1rem));
+  display: flex;
+  flex-direction: column;
+  background: var(--face);
+  border: 1px solid #0a3f94;
+  border-radius: 6px 6px 0 0;
+  box-shadow: 2px -2px 10px rgb(0 0 0 / 40%);
+}
+.start-menu[hidden] { display: none; }
+.start-menu-head {
+  padding: .45rem .7rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(to bottom, #1c62d6 0%, #0a3f94 100%);
+  border-radius: 5px 5px 0 0;
+}
+.start-menu-head small { display: block; font-weight: 400; font-size: 10px; opacity: .9; }
+.start-menu ol {
+  margin: 0;
+  padding: .3rem;
+  list-style: none;
+  overflow-y: auto;
+  background: var(--bg);
+}
+.start-menu li a {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+  padding: .3rem .45rem;
+  min-height: 24px;
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: 2px;
+}
+.start-menu li a:hover,
+.start-menu li a:focus-visible { background: var(--title-b); color: #fff; }
+.start-menu li .n {
+  flex: 0 0 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.start-menu li a:hover .n,
+.start-menu li a:focus-visible .n { color: #dfe8f5; }
+.start-menu li .theme { flex: 1 1 auto; }
+.start-menu li a[aria-current="page"] { font-weight: 700; }
+/* A day with no page yet. Rendered as a span, not a link, so it is not a dead target; the
+   muted colour is the same signal the hover state inverts. */
+.start-menu li .todo {
+  display: flex;
+  gap: .5rem;
+  align-items: baseline;
+  padding: .3rem .45rem;
+  min-height: 24px;
+  color: var(--muted);
+}
+.start-menu-foot {
+  padding: .35rem .7rem;
+  font-size: 10px;
+  color: var(--muted);
+  border-top: 1px solid var(--sunk);
+}
+
+/* ---------------------------------------------------------------------------
+   MapLibre's own stylesheet, reduced to the rules that matter.
+   Copied verbatim from `maplibre-gl.css` (BSD-3-Clause; `vendor/LICENSE.txt` ships). This
+   project draws its own zoom buttons and renders no MapLibre control, so the rest of the
+   10 KB file matches nothing here. The touch-action rules are kept: dropping them breaks
+   pinch-zoom on a phone, which no desktop check would catch.
+   --------------------------------------------------------------------------- */
+
+.maplibregl-map { overflow: hidden; position: relative; -webkit-tap-highlight-color: rgb(0 0 0 / 0); }
+.maplibregl-canvas { position: absolute; left: 0; top: 0; }
+.maplibregl-canvas-container.maplibregl-interactive { cursor: grab; user-select: none; }
+.maplibregl-canvas-container.maplibregl-interactive:active { cursor: grabbing; }
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate,
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate .maplibregl-canvas { touch-action: pan-x pan-y; }
+.maplibregl-canvas-container.maplibregl-touch-drag-pan,
+.maplibregl-canvas-container.maplibregl-touch-drag-pan .maplibregl-canvas { touch-action: pinch-zoom; }
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan,
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan .maplibregl-canvas { touch-action: none; }
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-top-left,
+.maplibregl-ctrl-top-right { position: absolute; pointer-events: none; z-index: 2; }
+.maplibregl-ctrl-top-left { top: 0; left: 0; }
+.maplibregl-ctrl-top-right { top: 0; right: 0; }
+.maplibregl-ctrl-bottom-left { bottom: 0; left: 0; }
+.maplibregl-ctrl-bottom-right { right: 0; bottom: 0; }
+
+/* A marker, for days that drop one. MapLibre's default marker is an inline-styled SVG with
+   a data: URI, which a strict CSP refuses; this is a plain element with a class, and its
+   shape is geometry in JavaScript. MapLibre writes its own `transform` onto a marker
+   element, so a CSS-rotated teardrop silently renders unrotated — `filter` is a paint
+   property and survives. */
+.map-pin { display: block; filter: drop-shadow(1px 1px 2px rgb(0 0 0 / 45%)); }
+.map-pin path { fill: #e8431f; stroke: #fff; stroke-width: 2; }

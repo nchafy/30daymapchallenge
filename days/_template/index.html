@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Day NN &mdash; THEME &middot; 30 Day Map Challenge 2026</title>
+<meta name="description" content="Day NN of the 30 Day Map Challenge 2026: THEME.">
+<link rel="stylesheet" href="/assets/xp.css">
+</head>
+<body>
+
+<!-- Copy this folder to days/NN-slug/, then: replace NN and THEME in the four places below,
+     set `dir` on the matching row in assets/days.mjs, and write the overlay in map.mjs. -->
+<div class="window">
+  <div class="window-title">
+    <svg class="window-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <circle cx="8" cy="8" r="7" fill="#3a6ea5" stroke="#dfe8f5" stroke-width="1"/>
+      <path d="M1 8h14M8 1c2.5 2 2.5 12 0 14M8 1C5.5 3 5.5 13 8 15" fill="none" stroke="#dfe8f5" stroke-width="1"/>
+    </svg>
+    <h1>Day NN &mdash; THEME</h1>
+    <span class="spacer"></span>
+    <div class="title-buttons">
+      <span class="title-box is-decorative" aria-hidden="true">_</span>
+      <span class="title-box is-decorative" aria-hidden="true">&#9633;</span>
+      <button type="button" class="title-box close" id="window-close" aria-label="Close window">&#10005;</button>
+    </div>
+  </div>
+
+  <div class="window-body">
+    <div id="map" class="map"></div>
+
+    <div class="overlays">
+      <div class="card">
+        <h2>Basemap</h2>
+        <div class="layer-switch" role="group" aria-label="Which basemap to show">
+          <button type="button" data-basemap="simple" aria-pressed="true">Simple</button>
+          <button type="button" data-basemap="satellite" aria-pressed="false">Satellite</button>
+          <button type="button" data-basemap="geography" aria-pressed="false">Geography</button>
+        </div>
+      </div>
+      <!-- The day's own controls go in a second card here. -->
+    </div>
+
+    <div class="map-zoom">
+      <button type="button" id="map-zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" id="map-zoom-out" aria-label="Zoom out">&#8722;</button>
+    </div>
+
+    <p id="map-status" class="map-status" role="status" aria-live="polite"></p>
+    <p id="map-attrib" class="map-attrib"></p>
+
+    <aside class="detail" id="detail" aria-labelledby="detail-title" hidden>
+      <div class="detail-head">
+        <h2 id="detail-title"></h2>
+        <button type="button" class="detail-close title-box close" aria-label="Close details">&#10005;</button>
+      </div>
+      <div class="detail-body"></div>
+      <p class="detail-foot"></p>
+    </aside>
+  </div>
+</div>
+
+<nav class="taskbar" aria-label="Challenge days">
+  <button type="button" class="start" id="start" aria-expanded="false" aria-controls="start-menu">start</button>
+  <div class="task-items">
+    <span class="task-button">Day NN &mdash; THEME</span>
+  </div>
+  <div class="tray"><span id="clock"></span></div>
+</nav>
+
+<div class="start-menu" id="start-menu" hidden>
+  <div class="start-menu-head">30 Day Map Challenge<small>1&ndash;30 November 2026</small></div>
+  <ol></ol>
+  <p class="start-menu-foot">Themes from 30daymapchallenge.com</p>
+</div>
+
+<script type="module" src="./map.mjs"></script>
+</body>
+</html>
