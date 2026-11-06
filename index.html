@@ -5,16 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>30 Day Map Challenge 2026</title>
 <meta name="description" content="Thirty maps for the 30 Day Map Challenge, November 2026, on one Windows XP themed base map. Every day is an icon on the desktop.">
-<link rel="stylesheet" href="/assets/xp.css">
-<link rel="stylesheet" href="/assets/index.css">
+<link rel="stylesheet" href="/os/theme.css">
+<link rel="stylesheet" href="/os/desktop.css">
 </head>
 <body class="desktop">
 
 <h1 class="visually-hidden">30 Day Map Challenge, November 2026</h1>
 
 <ul id="icons" class="icon-grid" aria-label="The base map and the thirty days">
-  <!-- Filled by index.mjs from assets/days.mjs. Without JavaScript the desktop is empty,
-       so the one link that always works is below it. -->
+  <!-- Filled by boot-desktop.mjs, which turns days/themes.mjs into OS entries via
+       apps.mjs. Without JavaScript the desktop is empty, so the one link that always
+       works is below it. -->
 </ul>
 
 <noscript>
@@ -36,6 +37,6 @@
   <p class="start-menu-foot">Themes from 30daymapchallenge.com</p>
 </div>
 
-<script type="module" src="/assets/index.mjs"></script>
+<script type="module" src="/boot-desktop.mjs"></script>
 </body>
 </html>

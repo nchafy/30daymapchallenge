@@ -10,10 +10,11 @@
  * this way is what proves `draw` really is re-run when the basemap changes.
  */
 
-import { createBaseMap } from '../../assets/basemap.mjs';
-import { mountChrome, group } from '../../assets/chrome.mjs';
+import { createBaseMap } from '../../lib/basemap.mjs';
+import { mountShell, group } from '../../os/shell.mjs';
+import { APPS } from '../../apps.mjs';
 
-const { panel } = mountChrome({ here: '00-base' });
+const { panel } = mountShell({ here: '00-base', entries: APPS, menu: APPS });
 
 //: Where the map opens. New York at z10 because all three basemaps have good coverage there,
 //: so switching between them on load shows three real maps rather than three grey squares.

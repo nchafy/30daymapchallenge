@@ -5,13 +5,15 @@
  * selection, a filter, a clicked point — lives in a variable outside it and is read back in.
  */
 
-import { createBaseMap } from '../../assets/basemap.mjs';
-import { mountChrome, group } from '../../assets/chrome.mjs';
+import { createBaseMap } from '../../lib/basemap.mjs';
+import { mountShell, group } from '../../os/shell.mjs';
+import { APPS } from '../../apps.mjs';
 
-// `here` MUST equal this folder's name under `days/`. It marks the day in the Start menu
-// and it is what registers the window in the taskbar, so a value that does not match a
-// `dir` in `assets/days.mjs` is dropped and the page gets no taskbar button.
-const { panel } = mountChrome({ here: 'NN-THEME-SLUG' });
+// `here` MUST equal this folder's name under `days/`, and the same string MUST be the
+// `dir` on this day's row in `days/themes.mjs`. It marks the day in the Start menu and it
+// is what registers the window in the taskbar; a `here` that is not an app id is refused,
+// with a warning in the console, and the page gets no taskbar button.
+const { panel } = mountShell({ here: 'NN-THEME-SLUG', entries: APPS, menu: APPS });
 
 const base = await createBaseMap({
   container: 'map',

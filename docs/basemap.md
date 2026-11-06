@@ -1,7 +1,7 @@
 # The base map
 
 Three basemaps, one shell, and a `draw` callback. Everything a day needs is in
-`assets/basemap.mjs` and `assets/chrome.mjs`; the era is in `assets/xp.css` and
+`lib/basemap.mjs` and `os/shell.mjs`; the era is in `os/theme.css` and
 nowhere else.
 
 ## The three basemaps
@@ -68,7 +68,7 @@ regress quietly.
 
 ### The satnav palette
 
-`simple` is liberty with a paint-only override, `SATNAV` in `assets/basemap.mjs`: flat
+`simple` is liberty with a paint-only override, `SATNAV` in `lib/basemap.mjs`: flat
 olive land, deep navy water, arterials in a yellow that carries at arm's length. Every
 key in it is a layer id measured out of liberty with `scripts/inspect_style.py` —
 positron's ids are different, which is why a palette written against positron silently
@@ -127,7 +127,7 @@ actually hit here?" — is the one a `visibility` or `z-index` comparison does n
 
 1. `cp -r days/_template days/07-ten-minute-map`
 2. Replace `NN` and `THEME` in `index.html` (four places) and `map.mjs` (two).
-3. Set `dir: '07-ten-minute-map'` on day 7's row in `assets/days.mjs`. Until you do,
+3. Set `dir: '07-ten-minute-map'` on day 7's row in `days/themes.mjs`. Until you do,
    the index renders that day as plain text rather than a dead link.
 4. Write the overlay in `map.mjs`.
 

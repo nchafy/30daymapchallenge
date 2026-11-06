@@ -70,7 +70,7 @@ def main() -> int:
                 """(() => {
                   const live = document.querySelector('#icons .icon-link[href] .icon-art[data-n]');
                   const r = live.getBoundingClientRect();
-                  const globe = document.querySelector('#icons .icon-art.is-base').getBoundingClientRect();
+                  const globe = document.querySelector('#icons .icon-art[data-kind="globe"]').getBoundingClientRect();
                   // One rectangle spanning the first column's top three icons: globe,
                   // then whichever two follow.
                   return {

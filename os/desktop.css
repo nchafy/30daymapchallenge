@@ -91,13 +91,29 @@ body.desktop::before {
   width: 32px;
   height: 32px;
   flex: 0 0 32px;
-  /* A map sheet with a folded corner. Inline rather than a file: it is one icon used 31
-     times, and a separate request for well under a kilobyte costs more than it saves.
+  /* The default art: a document sheet with a folded corner, for a `kind` the stylesheet
+     has no rule for. Inline rather than a file: these are a few hundred bytes each and a
+     separate request costs more than it saves.
 
-     The map inside the sheet is drawn at full saturation and fills most of it. The first
-     version used pale tints over a white page, which is what a real icon does at 48px and
-     reads as a blank document at 32 -- and worse once the greyscale for an unbuilt day is
-     applied on top. At this size an icon has room for about three shapes. */
+     A host adds a kind by adding one `[data-kind="..."]` rule below. The art is keyed off
+     the attribute rather than a class like `.is-base`, because the kinds belong to
+     whatever site is using the shell and this file should not have to know them. */
+  background-image: url('data:image/svg+xml,\
+%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E\
+%3Cpath d="M5.5 2.5h14.2l6.8 6.8v20.2H5.5z" fill="%23fff" stroke="%23536c7d" stroke-width="1.2"/%3E\
+%3Cpath d="M19.7 2.5l6.8 6.8h-6.8z" fill="%23b9d3ee" stroke="%23536c7d" stroke-width="1.2"/%3E\
+%3Cpath d="M9 14h13M9 18h13M9 22h9" stroke="%238fa6b6" stroke-width="1.6"/%3E\
+%3C/svg%3E');
+  background-size: 32px 32px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(1px 1px 1px rgb(0 0 0 / 40%));
+}
+
+/* A map sheet. The map inside is drawn at full saturation and fills most of it: the first
+   version used pale tints over a white page, which is what a real icon does at 48px and
+   reads as a blank document at 32 -- and worse once the greyscale for an unavailable entry
+   is applied on top. At this size an icon has room for about three shapes. */
+.icon-art[data-kind="map"] {
   background-image: url('data:image/svg+xml,\
 %3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E\
 %3Cpath d="M5.5 2.5h14.2l6.8 6.8v20.2H5.5z" fill="%23fff" stroke="%23536c7d" stroke-width="1.2"/%3E\
@@ -112,9 +128,9 @@ body.desktop::before {
   filter: drop-shadow(1px 1px 1px rgb(0 0 0 / 40%));
 }
 
-/* The base map gets the globe the window title bars use, because it is not one of the
-   thirty and an icon that says so saves a reader working it out from the label. */
-.icon-art.is-base {
+/* A globe, the same one the window title bars use. This project gives it to the base map,
+   which is not one of the thirty, so an icon says so without the reader parsing a label. */
+.icon-art[data-kind="globe"] {
   background-image: url('data:image/svg+xml,\
 %3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E\
 %3Ccircle cx="16" cy="16" r="13" fill="%233a6ea5" stroke="%23dfe8f5" stroke-width="2"/%3E\

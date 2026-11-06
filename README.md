@@ -16,17 +16,30 @@ reachable from another machine.
 
 ## What is here
 
+Three layers. The OS does not know what a map is; the apps do not know how a window works.
+
 | Path | What it is |
 | --- | --- |
+| **`os/`** | **The shell. Knows nothing about maps or days.** |
+| `os/shell.mjs` | `mountShell()`. The one import a page needs. |
+| `os/entries.mjs` | The whole contract: what the shell is given to show. |
+| `os/desktop.mjs` | `renderDesktop()` — an icon per entry. |
+| `os/taskbar.mjs` | Which windows are open, and the buttons in the bar. |
+| `os/menu.mjs` | The Start menu. |
+| `os/panel.mjs` | The detail panel, plus `group()` and `table()`. |
+| `os/theme.css` | The Luna theme. The only file that knows what decade this is. |
+| `os/desktop.css` | The wallpaper and the icon grid. |
+| `os/conformance.html` | A fixture standing in for a host that is not this site. |
+| **`lib/`** | **Libraries an app uses.** |
+| `lib/basemap.mjs` | `createBaseMap()`, the three basemaps, the switcher. |
+| **this site** | **The only files that know both halves.** |
+| `apps.mjs` | Turns `days/themes.mjs` into OS entries. |
+| `boot-desktop.mjs` | The desktop page's three lines. |
 | `index.html` | The desktop. One icon per day; opening one puts it in the taskbar. |
-| `assets/taskbar.mjs` | Which days are open, and the window buttons in the bar. |
+| `days/themes.mjs` | The thirty themes. Set `dir` when a day gets a page. |
 | `days/00-base/` | The base map with nothing on it. Start here. |
 | `days/02-lines/` | Day 2. How much of a GPS trace is noise. `docs/gps-noise.md`. |
 | `days/_template/` | Copy this to start a day. |
-| `assets/basemap.mjs` | `createBaseMap()`, the three basemaps, the switcher. |
-| `assets/chrome.mjs` | Taskbar, Start menu, detail panel, group boxes and tables. |
-| `assets/days.mjs` | The thirty themes. Set `dir` when a day gets a page. |
-| `assets/xp.css` | The Luna theme. The only file that knows what decade this is. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
 | `scripts/zoom_icon.py` | Captures the desktop icons at 8x, for judging 32 px art. |
 | `scripts/measure_wallpaper.py` | Measures the wallpaper drawn and removed, to set `check.py`'s threshold from data. |
@@ -41,10 +54,10 @@ cp -r days/_template days/07-ten-minute-map
 
 Then, in its two files, replace `NN` and `THEME` with the day and its theme, and
 `NN-THEME-SLUG` with the folder name — `07-ten-minute-map`. Set `dir` to the same folder
-name on day 7's row in `assets/days.mjs`, and write the overlay in `map.mjs`.
+name on day 7's row in `days/themes.mjs`, and write the overlay in `map.mjs`.
 
 Those two have to agree. `dir` is what turns the desktop icon into a link; the `here`
-passed to `mountChrome` is what registers the window in the taskbar, and a `here` that is
+passed to `mountShell` is what registers the window in the taskbar, and a `here` that is
 not a `dir` in `days.mjs` is dropped, so the page gets no taskbar button and
 `scripts/check.py` fails without saying why.
 
@@ -52,6 +65,49 @@ not a `dir` in `days.mjs` is dropped, so the page gets no taskbar button and
 add its sources unconditionally. State that must survive a basemap switch lives outside
 it. `docs/basemap.md` has the rest, including the `styledata` trap that cost an
 afternoon.
+
+## The OS, and the things that run in it
+
+`os/` is a Windows-like shell: a desktop of icons, a taskbar of open windows, a Start
+menu, a window frame with a working close box, a sliding detail panel, a tray clock. It
+has no idea what any of them contain.
+
+A host hands it entries and nothing else:
+
+```js
+import { mountShell, renderDesktop } from './os/shell.mjs';
+
+const APPS = [
+  { id: 'trees', label: 'Street trees', href: '/trees/', kind: 'map', badge: '01' },
+  { id: 'soon',  label: 'Not built yet' },           // no href: greyed, not a target
+];
+
+mountShell({ here: 'trees', entries: APPS, menu: APPS });
+renderDesktop(document.getElementById('icons'), APPS);
+```
+
+Every piece is opt-in, and that is load-bearing rather than tidy:
+
+- No `entries`, and **the taskbar is not touched**. A host that server-renders its own bar
+  — so that its navigation works with no JavaScript — keeps its markup.
+- No `menu`, and the Start menu is not wired, so no catalogue is imported and no file has
+  to exist for the import graph to resolve.
+- No `#clock` or `#detail` in the markup, and you simply do not get those.
+
+An earlier version of this got all three wrong. `os/shell.mjs` imported this project's day
+catalogue, built `/days/<dir>/` URLs by hand in three separate modules, and called
+`renderTaskbar` unconditionally — which, because the open-window list was filtered against
+that same catalogue, silently emptied the taskbar of any site that was not this one. "I
+have no windows to show" and "I was not asked to manage this bar" are different states.
+
+Both of those are checks now, not intentions:
+
+- `check_os_independent` reads every module under `os/` and fails on an import that leaves
+  the directory. Static, because an import that only fires on one page would otherwise
+  pass every run until someone visited that page.
+- `os/conformance.html` is a fixture standing in for a foreign host: it server-renders two
+  taskbar buttons, calls `mountShell()` with no entries, and the harness requires both
+  buttons to survive.
 
 ## The look
 

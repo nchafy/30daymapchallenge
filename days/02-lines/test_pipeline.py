@@ -108,8 +108,16 @@ def main() -> int:
 
     # The ladder must be monotone in every written document, not just in the unit test's
     # synthetic trace.
-    for p in sorted(data.glob("*.json")):
-        if p.name == "index.json":
+    #
+    # Driven from the index rather than by globbing the directory. Globbing and skipping
+    # `index.json` by name broke the moment `build_overview.py` started writing
+    # `overview.json` alongside: the test read it as an activity and died on a missing key.
+    # Asking the index which documents it claims exist is both narrower and a stronger
+    # assertion -- a row with no document now fails here instead of being skipped.
+    for row in index["activities"]:
+        p = data / f"{row['id']}.json"
+        if not p.is_file():
+            check(f"{row['name']}: document written", False, f"{p.name} is missing")
             continue
         doc = json.loads(p.read_text())
         lengths = [row[1] for row in doc["ladder"]]

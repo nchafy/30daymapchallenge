@@ -26,11 +26,12 @@
  * unconditionally. The tolerance and the selection live outside it and are read back in.
  */
 
-import { createBaseMap } from '../../assets/basemap.mjs';
-import { mountChrome, group } from '../../assets/chrome.mjs';
+import { createBaseMap } from '../../lib/basemap.mjs';
+import { mountShell, group } from '../../os/shell.mjs';
+import { APPS } from '../../apps.mjs';
 import { project, simplifyMask, simplifiedCoords, planeLength, ladder } from './geo.mjs';
 
-const { panel } = mountChrome({ here: '02-lines' });
+const { panel } = mountShell({ here: '02-lines', entries: APPS, menu: APPS });
 
 //: Every run, simplified. The map's backdrop.
 const ALL = 'all';

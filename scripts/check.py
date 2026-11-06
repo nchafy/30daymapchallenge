@@ -502,13 +502,13 @@ MIN_DESKTOP_PIXELS = 10_000
 
 
 def days_with_pages() -> list[str]:
-    """The folders `assets/days.mjs` claims have a page, base map included.
+    """The folders `days/themes.mjs` claims have a page, base map included.
 
     Read out of the source rather than hardcoded, so this file does not have to be edited
     every time a day is built. The point of reading it is to compare what the data file
     says against what the desktop renders and what the server will actually serve.
     """
-    source = (REPO_ROOT / "assets" / "days.mjs").read_text()
+    source = (REPO_ROOT / "days" / "themes.mjs").read_text()
     dirs = re.findall(r"dir:\s*'([^']+)'", source)
     # Order does not matter here; `dict.fromkeys` just drops any accidental duplicate.
     return list(dict.fromkeys(dirs))
@@ -734,6 +734,106 @@ LINE_EXCLUDE = ".overlays > *, .map-zoom, .detail, .map-attrib"
 #: for the sky's #3f93dd. Counting them made the sky check unfailable at 1280x820: with
 #: the wallpaper removed entirely it still found 3,087 "sky" pixels, over the threshold.
 DESKTOP_EXCLUDE = ".taskbar"
+
+
+#: The conformance fixture: a stand-in for a host site that is not this one.
+OS_PAGE = "/os/conformance.html"
+
+#: Directories `os/` is allowed to import from. Itself, and nothing else.
+#:
+#: This is the whole point of the split, so it is a check rather than an intention. The
+#: shell used to import this project's day catalogue in three separate modules, which made
+#: it unusable by anything else and made that catalogue a required file for any page that
+#: wanted only the clock.
+OS_IMPORT_ALLOWED = ("./", "../os/")
+
+
+def check_os_independent() -> list[str]:
+    """`os/` must not import the site it is drawing.
+
+    Static, not browser-driven: an import that only fires on one page would otherwise pass
+    every run until someone visited that page.
+    """
+    failures: list[str] = []
+    os_dir = REPO_ROOT / "os"
+    for path in sorted(os_dir.glob("*.mjs")):
+        for n, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if not stripped.startswith(("import ", "export ")):
+                continue
+            match = re.search(r"from\s+'([^']+)'", stripped)
+            if not match:
+                continue
+            target = match.group(1)
+            if not target.startswith("."):
+                # A bare specifier would need a bundler or an import map; neither exists.
+                failures.append(f"os/{path.name}:{n}: bare import {target!r}")
+                continue
+            if not target.startswith(OS_IMPORT_ALLOWED):
+                failures.append(
+                    f"os/{path.name}:{n}: imports {target!r} from outside os/. The shell "
+                    f"must take its entries as arguments, not import a catalogue."
+                )
+    if not failures:
+        count = len(list(os_dir.glob("*.mjs")))
+        print(f"  (os/ is self-contained: {count} modules, no imports outside os/)")
+    return failures
+
+
+def check_os_conformance(page, viewport: str, base_url: str) -> list[str]:
+    """A foreign host can mount the shell without losing its own markup.
+
+    `os/conformance.html` server-renders two taskbar buttons and calls `mountShell()` with
+    no entries and no menu. The buttons must still be there afterwards.
+
+    This is a regression test for a reported defect, not a hypothetical: `mountChrome`
+    called `renderTaskbar` unconditionally, `renderTaskbar` cleared the container when the
+    open list was empty, and the open list was filtered against this project's own day
+    catalogue -- so for any other host the list was always empty and the bar was always
+    erased.
+    """
+    failures: list[str] = []
+    page.navigate(base_url + OS_PAGE)
+    time.sleep(0.8)
+
+    state = page.evaluate(
+        """(() => {
+          const items = document.querySelector('.task-items');
+          const buttons = [...items.querySelectorAll('.task-button')];
+          return {
+            buttons: buttons.length,
+            labels: buttons.map((b) => b.textContent.trim()),
+            clock: (document.getElementById('clock') || {}).textContent || '',
+            menuRows: document.querySelectorAll('#start-menu ol li').length,
+            panel: Boolean(window.conformance && window.conformance.panel),
+          };
+        })()"""
+    )
+
+    if state["buttons"] != 2:
+        failures.append(
+            f"os/{viewport}: mountShell() with no entries left {state['buttons']} of the "
+            f"host's 2 taskbar buttons. It must not touch a bar it was not given entries for."
+        )
+    elif state["labels"] != ["Host page one", "Host page two"]:
+        failures.append(f"os/{viewport}: the host's taskbar labels changed: {state['labels']}")
+    if state["menuRows"] != 0:
+        failures.append(
+            f"os/{viewport}: the Start menu gained {state['menuRows']} row(s) without being "
+            f"passed any entries"
+        )
+    if not state["clock"].strip():
+        failures.append(f"os/{viewport}: the clock did not start, so the shell did not mount")
+    if not state["panel"]:
+        failures.append(f"os/{viewport}: no panel was built for the host")
+
+    failures += [f"os/{viewport}: {e}" for e in console_errors(page)]
+    if not failures:
+        print(
+            f"  (a foreign host kept its {state['buttons']} taskbar buttons, "
+            f"clock reads {state['clock'].strip()!r}, menu untouched)"
+        )
+    return failures
 
 
 def count_pixels(
@@ -1350,6 +1450,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{marker} is not being served ({error})", file=sys.stderr)
             return 1
 
+        # Static, before a browser is started: nothing here needs one.
+        failures += check_os_independent()
+
         with Browser() as browser:
             for viewport, (width, height) in VIEWPORTS.items():
                 page = browser.page()
@@ -1472,6 +1575,9 @@ def main(argv: list[str] | None = None) -> int:
                 # Day 2, which has its own overlay, its own control and a second
                 # implementation of the arithmetic to keep honest.
                 failures += check_lines(page, viewport, out_dir, base)
+
+                # The shell, mounted the way a site that is not this one would.
+                failures += check_os_conformance(page, viewport, base)
     finally:
         server.terminate()
         try:

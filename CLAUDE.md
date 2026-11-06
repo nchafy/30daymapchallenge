@@ -24,9 +24,9 @@ Nothing the site serves needs Python.
 load-bearing and MUST hold:
 
 - **The chrome is Luna.** Window frame, title bar, taskbar, Start menu, cards,
-  group boxes, bevels. It lives in `assets/xp.css` and nowhere else.
+  group boxes, bevels. It lives in `os/theme.css` and nowhere else.
 - **The map is a satnav.** Flat olive land, deep navy water, bright yellow
-  arterials. It lives in `SATNAV` in `assets/basemap.mjs` and nowhere else.
+  arterials. It lives in `SATNAV` in `lib/basemap.mjs` and nowhere else.
 - Neither theme may leak into the other. A map colour MUST NOT appear in the
   chrome; a Luna colour MUST NOT appear in the map.
 
@@ -42,11 +42,11 @@ water once dropped liberty's water labels to about 1.5:1.
 
 | Fact | Its one definition |
 | --- | --- |
-| The thirty themes, and which have pages | `assets/days.mjs` |
-| The three basemaps, their zoom caps and credits | `BASEMAPS` in `assets/basemap.mjs` |
-| The satnav palette | `SATNAV` in `assets/basemap.mjs` |
-| Luna's colours, bevels and control shapes | `:root` in `assets/xp.css` |
-| The day index rows | `renderDayList` in `assets/chrome.mjs` |
+| The thirty themes, and which have pages | `days/themes.mjs` |
+| The three basemaps, their zoom caps and credits | `BASEMAPS` in `lib/basemap.mjs` |
+| The satnav palette | `SATNAV` in `lib/basemap.mjs` |
+| Luna's colours, bevels and control shapes | `:root` in `os/theme.css` |
+| The day index rows | `renderMenu` in `os/shell.mjs` |
 
 The Start menu and the index page render the same list through the same function.
 Two renderers of one list is how they drift, so a third call site MUST reuse it.
@@ -113,7 +113,7 @@ not mute the palette.
 
 1. `cp -r days/_template days/07-ten-minute-map`
 2. Replace `NN` and `THEME` in both files.
-3. Set `dir` on that day's row in `assets/days.mjs`.
+3. Set `dir` on that day's row in `days/themes.mjs`.
 4. Write the overlay in `map.mjs`.
 
 `docs/basemap.md` carries the basemap sources, their licences, and what
