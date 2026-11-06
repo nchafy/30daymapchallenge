@@ -82,7 +82,8 @@ SPACING_BAND_M = (3.0, 4.0)
 def windows_for(track):
     """Yield one record per window of a track.
 
-    Each is (lat, lon, inflation, speed_ms, simplified_m).
+    Each is (lat, lon, inflation, speed_ms, simplified_m, i0, i1) -- the last two being
+    the raw point indices the window spans, so a pass can be drawn back onto its own run.
     """
     x, y, _ = gn.project(track.lat, track.lon)
     keep = gn.simplify_mask(x, y, FLOOR_M)
@@ -119,6 +120,8 @@ def windows_for(track):
                 raw / simp,
                 speed,
                 simp,
+                int(i0),
+                int(i1),
             )
         start = end
 
@@ -162,11 +165,12 @@ def main() -> int:
             continue
 
         kept_any = False
-        for lat, lon, infl, speed, simp in windows_for(track):
+        aid = prepare.activity_id(path, set())
+        for lat, lon, infl, speed, simp, i0, i1 in windows_for(track):
             if not np.isfinite(speed) or not (SPEED_BAND_MS[0] <= speed <= SPEED_BAND_MS[1]):
                 skipped_speed += 1
                 continue
-            rows.append((lat, lon, infl, speed, path.name))
+            rows.append((lat, lon, infl, speed, path.name, aid, i0, i1, track.name))
             kept_any = True
         if kept_any:
             used_activities += 1
@@ -240,12 +244,26 @@ def main() -> int:
     # Bin spatially. Both the raw inflation and the speed-adjusted residual, so the report
     # can say whether the pattern is the same one.
     cells = {}
-    for idx, (lat, lon, value, _s, name) in enumerate(rows):
+    for idx, (lat, lon, value, spd, name, aid, i0, i1, title) in enumerate(rows):
         key = (round(lat / CELL_DEG), round(lon / CELL_DEG))
-        cell = cells.setdefault(key, {"values": [], "resid": [], "acts": set()})
+        cell = cells.setdefault(key, {"values": [], "resid": [], "acts": set(), "passes": []})
         cell["values"].append(value)
         cell["resid"].append(residual[idx])
         cell["acts"].add(name)
+        # One pass: which run, which stretch of it, and what it measured. This is the
+        # drill-down -- a segment is a place, a pass is one crossing of it, and `activity`
+        # plus the index span is enough to go back to the run and draw just that stretch.
+        cell["passes"].append(
+            {
+                "activity": aid,
+                "name": title,
+                "i0": i0,
+                "i1": i1,
+                "inflation_pct": round((value - 1) * 100, 2),
+                "adjusted_pts": round(float(residual[idx]) * 100, 2),
+                "speed_ms": round(float(spd), 2),
+            }
+        )
 
     good = {
         k: v
@@ -262,14 +280,19 @@ def main() -> int:
 
     stats = []
     for (ky, kx), v in good.items():
+        # A stable key for the cell, so the page can filter on identity rather than on a
+        # measured value -- two cells can share a median.
+        cell_id = f"{ky}:{kx}"
         vals = np.array(v["values"])
         res = np.array(v["resid"])
         stats.append(
             {
+                "id": cell_id,
                 "lat": ky * CELL_DEG,
                 "lon": kx * CELL_DEG,
                 "median": float(np.median(vals)),
                 "resid": float(np.median(res)),
+                "passes": sorted(v["passes"], key=lambda q: -q["adjusted_pts"]),
                 "p90": float(np.percentile(vals, 90)),
                 "n": len(vals),
                 "activities": len(v["acts"]),
@@ -337,11 +360,15 @@ def main() -> int:
                             ],
                         },
                         "properties": {
+                            "id": s["id"],
+                            "lat": round(s["lat"], 6),
+                            "lon": round(s["lon"], 6),
                             "inflation_pct": round((s["median"] - 1) * 100, 3),
                             "adjusted_pts": round(s["resid"] * 100, 3),
                             "p90_pct": round((s["p90"] - 1) * 100, 3),
                             "windows": s["n"],
                             "activities": s["activities"],
+                            "passes": s["passes"],
                         },
                     }
                     for s in stats

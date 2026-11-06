@@ -903,6 +903,236 @@ def check_os_csp(page, viewport: str, out_dir: Path, base_url: str) -> list[str]
     return failures
 
 
+#: The choropleth's layers and its validated ramp.
+NOISE_LAYERS = ("noise-scrim", "noise", "noise-outline", "noise-selected")
+#: Every step of the diverging ramp in `days/02-lines/map.mjs`. Counted together: which
+#: classes are on screen depends on where the camera is, so the assertion is that the
+#: choropleth paints, not that a particular class does.
+NOISE_RAMP_INKS = {
+    "cells": (0x2A, 0x78, 0xD6),
+    "cells-b": (0x55, 0x98, 0xE7),
+    "cells-c": (0x9E, 0xC5, 0xF4),
+    "cells-d": (0xD6, 0x45, 0x3F),
+    "cells-e": (0xEF, 0x6A, 0x5E),
+    "cells-f": (0xF9, 0xA7, 0x9C),
+}
+NOISE_INK_SLACK = 26
+MIN_NOISE_PIXELS = 400
+#: Classes in the legend, which must equal the ramp length in map.mjs.
+NOISE_LEGEND_ROWS = 7
+
+
+def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
+    """The noise choropleth, and the segment -> crossings -> run drill-down.
+
+    Skipped with a note when `area-noise.json` is absent, which is the state of a fresh
+    clone: the grid is built from a private export and is not committed. Saying so beats
+    both failing and silently passing.
+    """
+    failures: list[str] = []
+    page.navigate(base_url + LINES_PAGE)
+    wait_for_map(page)
+    settle(page)
+
+    present = page.evaluate(
+        """(() => ({
+             hasNoise: window.lines.hasNoise(),
+             cells: window.lines.noiseCells(),
+             legend: window.lines.legendRows().length,
+             disabled: document.getElementById('toggle-noise').disabled,
+             note: (document.getElementById('noise-note') || {}).textContent || '',
+           }))()"""
+    )
+    if present["legend"] != NOISE_LEGEND_ROWS:
+        failures.append(
+            f"noise/{viewport}: the legend has {present['legend']} classes, want "
+            f"{NOISE_LEGEND_ROWS}"
+        )
+    if not present["hasNoise"]:
+        # Not a failure: the grid is private and absent by default.
+        if not present["disabled"]:
+            failures.append(
+                f"noise/{viewport}: no grid loaded but the toggle is enabled, so pressing "
+                f"it would do nothing"
+            )
+        if "noise_by_area" not in present["note"]:
+            failures.append(
+                f"noise/{viewport}: no grid and the card does not say how to build one "
+                f"({present['note']!r})"
+            )
+        print(f"  (no noise grid; toggle correctly disabled and explained)")
+        return failures
+
+    # Turn it on and require cells to actually paint.
+    shown = page.evaluate(
+        """(() => {
+          const map = window.base.map;
+          // Bounded, and it must be. `map.once('idle', ...)` never fires when the map is
+          // already idle, so awaiting it after a settled camera hangs the evaluation until
+          // the CDP channel times out and the whole run dies with a lost connection. This
+          // resolves on the next idle OR on a deadline, whichever comes first.
+          const settled = (ms) => new Promise((resolve) => {
+            const timer = setTimeout(resolve, ms);
+            map.once('idle', () => { clearTimeout(timer); resolve(); });
+          });
+          return (async () => {
+            document.getElementById('toggle-noise').click();
+            // The toggle also moves the camera to where the cells are, so waiting once is
+            // not enough -- counting mid-flight photographed an empty corner of the map and
+            // reported the layer as not painting.
+            await settled(1500);
+            await settled(2000);
+            return {
+              shown: window.lines.noiseShown(),
+              visible: %s.filter((id) => map.getLayer(id)
+                && map.getLayoutProperty(id, 'visibility') === 'visible'),
+              rendered: map.queryRenderedFeatures({ layers: ['noise'] }).length,
+              legendHidden: document.getElementById('noise-legend').hidden,
+            };
+          })();
+        })()"""
+        % (list(NOISE_LAYERS),),
+        await_promise=True,
+    )
+    if not shown["shown"]:
+        failures.append(f"noise/{viewport}: the toggle did not turn the layer on")
+    if len(shown["visible"]) != len(NOISE_LAYERS):
+        failures.append(
+            f"noise/{viewport}: only {shown['visible']} of {list(NOISE_LAYERS)} became visible"
+        )
+    if shown["rendered"] < 1:
+        failures.append(f"noise/{viewport}: no cells rendered with the layer on")
+    if shown["legendHidden"]:
+        failures.append(f"noise/{viewport}: the legend is still hidden with the layer on")
+
+    shot = out_dir / f"noise-{viewport}.png"
+    counts = count_pixels(
+        page, shot, NOISE_RAMP_INKS, NOISE_INK_SLACK, region=LINE_REGION, exclude=LINE_EXCLUDE
+    )
+    painted = sum(counts[k] for k in NOISE_RAMP_INKS)
+    if painted < MIN_NOISE_PIXELS:
+        failures.append(
+            f"noise/{viewport}: the choropleth covers {painted} pixels of the map, want at "
+            f"least {MIN_NOISE_PIXELS}. The layer is visible and not painting."
+        )
+
+    # The drill-down: a segment, its crossings, and one of them back on its own run.
+    drill = page.evaluate(
+        """(() => {
+          const map = window.base.map;
+          const cell = window.lines.firstCellWithPasses();
+          if (!cell) return Promise.resolve({ ok: false, why: 'no cell carries more than two crossings' });
+          // Opening a segment loads the runs behind the overlay and flies the camera, so
+          // both have to finish before anything is counted. Asking earlier measured an
+          // empty frame and reported the layer as not painting.
+          return window.lines.openSegment(cell)
+            .then(() => new Promise((r) => map.once('idle', r)))
+            .then(() => {
+              const detail = document.getElementById('detail');
+              return {
+                ok: true,
+                cellId: cell.id,
+                selected: window.lines.selectedCell(),
+                title: detail.querySelector('h2').textContent,
+                rows: detail.querySelectorAll('.group-table tbody tr').length,
+                passButtons: detail.querySelectorAll('.pass-row').length,
+                ghosts: window.lines.ghostCount(),
+                ghostsDrawn: map.queryRenderedFeatures({ layers: ['ghosts'] }).length,
+                totalPasses: cell.passes.length,
+                cell,
+              };
+            });
+        })()""",
+        await_promise=True,
+    )
+    if not drill.get("ok"):
+        failures.append(f"noise/{viewport}: {drill.get('why')}")
+        return failures
+    if drill["selected"] != drill["cellId"]:
+        failures.append(
+            f"noise/{viewport}: opening a segment selected {drill['selected']!r}, "
+            f"want {drill['cellId']!r}"
+        )
+    if drill["rows"] < 5:
+        failures.append(
+            f"noise/{viewport}: the segment panel has {drill['rows']} stat rows, want 5+"
+        )
+    if drill["passButtons"] < 2:
+        failures.append(
+            f"noise/{viewport}: the segment panel offers {drill['passButtons']} crossings "
+            f"to drill into, want at least 2"
+        )
+    # The overlay is the thing this view exists for: every crossing of the segment drawn on
+    # top of the others, so the width of the bundle is the noise. A panel of numbers with
+    # nothing on the map would pass every other assertion here.
+    if drill["ghosts"] < 2:
+        failures.append(
+            f"noise/{viewport}: {drill['ghosts']} crossings loaded for the overlay out of "
+            f"{drill['totalPasses']}, want at least 2 -- there is no bundle to look at"
+        )
+    elif drill["ghostsDrawn"] < 2:
+        failures.append(
+            f"noise/{viewport}: {drill['ghosts']} crossings loaded but only "
+            f"{drill['ghostsDrawn']} rendered. The overlay is in the style and not on screen."
+        )
+
+    leaf = page.evaluate(
+        """(() => {
+          const map = window.base.map;
+          const cell = window.lines.firstCellWithPasses();
+          return window.lines.showPass(cell.passes[0], cell)
+            .then(() => new Promise((r) => map.once('idle', r)))
+            .then(() => {
+            const detail = document.getElementById('detail');
+            return {
+              span: window.lines.passSpan(),
+              selectedRun: window.lines.selectedId(),
+              drawn: map.queryRenderedFeatures({ layers: ['pass'] }).length,
+              sliderOff: document.getElementById('tolerance').disabled,
+              back: detail.querySelectorAll('.pass-row').length,
+              ghostsStill: map.queryRenderedFeatures({ layers: ['ghosts'] }).length,
+            };
+          });
+        })()""",
+        await_promise=True,
+    )
+    if not leaf["span"]:
+        failures.append(f"noise/{viewport}: drilling into a crossing set no span")
+    elif leaf["selectedRun"] != leaf["span"]["activity"]:
+        failures.append(
+            f"noise/{viewport}: the crossing belongs to {leaf['span']['activity']} but "
+            f"{leaf['selectedRun']} is selected"
+        )
+    if leaf["drawn"] < 1:
+        failures.append(
+            f"noise/{viewport}: the crossing was chosen but nothing was drawn for it"
+        )
+    if leaf["sliderOff"]:
+        failures.append(
+            f"noise/{viewport}: the slider is disabled after drilling in, so the wobble "
+            f"this drill-down exists to show cannot be measured"
+        )
+    if leaf["back"] < 1:
+        failures.append(f"noise/{viewport}: no way back up from a crossing")
+    # Promoting one crossing must not take the others away: the point of the solid line is
+    # that it is one thread *out of* the bundle.
+    if leaf["ghostsStill"] < 2:
+        failures.append(
+            f"noise/{viewport}: picking a crossing left {leaf['ghostsStill']} ghosts on "
+            f"screen, so there is nothing for it to stand out from"
+        )
+
+    failures += [f"noise/{viewport}: {e}" for e in console_errors(page)]
+    if not failures:
+        print(
+            f"  noise-{viewport}.png  {shot.stat().st_size // 1024} KB  "
+            f"{present['cells']} segments, {painted} px painted, "
+            f"{drill['passButtons']} listed, {drill['ghostsDrawn']} ghosts drawn, "
+            f"drilled into {leaf['span']['activity']}"
+        )
+    return failures
+
+
 def count_pixels(
     page,
     target: Path,
@@ -1642,6 +1872,8 @@ def main(argv: list[str] | None = None) -> int:
                 # Day 2, which has its own overlay, its own control and a second
                 # implementation of the arithmetic to keep honest.
                 failures += check_lines(page, viewport, out_dir, base)
+
+                failures += check_noise(page, viewport, out_dir, base)
 
                 # The shell, mounted the way a site that is not this one would.
                 failures += check_os_conformance(page, viewport, base)

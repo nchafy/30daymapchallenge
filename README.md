@@ -42,6 +42,8 @@ Three layers. The OS does not know what a map is; the apps do not know how a win
 | `days/_template/` | Copy this to start a day. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
 | `scripts/zoom_icon.py` | Captures the desktop icons at 8x, for judging 32 px art. |
+| `scripts/shoot_worm.py` | Captures a quiet and a noisy segment's crossing overlay at one zoom. |
+| `scripts/measure_csp.py` | Measures whether icon art survives a strict Content-Security-Policy. |
 | `scripts/measure_wallpaper.py` | Measures the wallpaper drawn and removed, to set `check.py`'s threshold from data. |
 | `docs/basemap.md` | Basemap sources, their licences, and how to write a day. |
 | `docs/gps-noise.md` | Day 2's method, what was verified against what, and the privacy rules for a Strava export. |

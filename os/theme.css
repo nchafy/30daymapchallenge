@@ -337,6 +337,44 @@ input[type="text"], input[type="search"], select {
 .key div { display: flex; align-items: center; gap: .4rem; font-size: 11px; }
 .key i { display: block; width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
 
+/* A choropleth's key, where the swatch stands for an area and so is a filled block.
+   The 1px outline is the same relief the cells themselves carry: the midpoint class is
+   deliberately recessive against the map, and without an edge its swatch would be an
+   empty gap in the list. */
+.noise-legend i {
+  width: 16px;
+  height: 11px;
+  border: 1px solid rgb(223 232 245 / 45%);
+  border-top-width: 1px;
+}
+.noise-legend div { font-variant-numeric: tabular-nums; }
+
+/* A row in the detail panel that is a target: one crossing of a segment, or the way back
+   up. Flat and full-width, because a column of era-correct bevelled buttons reads as a
+   toolbar rather than as a list. */
+.pass-row {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  margin: 0;
+  padding: .2rem .35rem;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  box-shadow: none;
+  cursor: pointer;
+}
+.pass-row:hover,
+.pass-row:focus-visible {
+  background: var(--title-b);
+  border-color: var(--title-a);
+  color: #fff;
+}
+
 /* Zoom buttons, bottom-left over the canvas: a map control belongs on the map. */
 .map-zoom {
   position: absolute;

@@ -212,6 +212,52 @@ than geocoded descriptions, so naming what is at one is an inference. The grid i
 `area-noise.json` beside the measured data — gitignored, because a map of where somebody
 runs is not public information.
 
+## Showing it: the crossing overlay
+
+The number is 2.3 points of spread between the quietest and noisiest places. The way to
+*see* it needs no number at all.
+
+Press **Show segments** for the choropleth — a diverging ramp over the grid, which answers
+*where*. Click a segment and the map draws **every crossing of that stretch on top of
+itself**: one faint line per run that went through it. Where the receiver agreed with
+itself the lines lie on each other; where it did not, they fan apart. The width of that
+bundle is the thing this whole page measures as a percentage.
+
+It is also the era's own failure mode. An XP window dragged faster than the compositor
+could repaint left a smear of copies trailing behind it, and that is exactly what a noisy
+segment looks like. `scripts/shoot_worm.py` captures the two extremes of a grid at one
+zoom, which is the comparison worth looking at: a quiet segment is a single thread, a noisy
+one is a street-width spray of threads over the same pavement.
+
+Three levels, and a run is the *destination* rather than the entry point:
+
+1. **The grid** — which places disagree with themselves.
+2. **A segment** — how much, across how many runs, and the best and worst crossings of it.
+3. **A crossing** — that stretch pulled solid out of the bundle, on its own run, with the
+   slider live on the full-resolution trace.
+
+### Choices in the choropleth worth not undoing
+
+- **Diverging ramp, grey midpoint.** The quantity is signed, so the ramp is two hues with a
+  neutral middle and never a hue at zero. Each arm was validated as an ordinal ramp against
+  the surface it renders on: monotone lightness, step gaps over 0.06, innermost steps at
+  3.08:1 and 3.09:1. Across the midpoint the worst colour-vision-deficient pair is ΔE 17.2
+  against an ≥8 target.
+- **A scrim under the cells.** A ramp has to be validated against the colour behind it, and
+  the satnav basemap has no single colour behind anything. The scrim makes the surface
+  deterministic whichever basemap is up, which is what let the ramp be computed instead of
+  guessed.
+- **Cells opaque up to zoom 15, then faded.** Painting the ramp at a constant 0.85 put the
+  colours actually on screen outside what was validated — one step landed 32 per channel
+  away. Above zoom 16 a single 222 m cell fills the viewport, so there is nothing left to
+  compare and a screen of flat colour just buries the crossings; the outline stays, so the
+  cell's extent is still legible.
+- **Every cell outlined, always.** The midpoint is deliberately recessive at 1.15:1. Without
+  an outline, "measured, and unremarkable" and "too few passes to report" would look
+  identical.
+- **The traces recede when the grid is up.** Four hundred traces on top of the cells they
+  are explaining wins, and should not.
+
 ## Two things the page cannot tell you
 
 **Strava's own figure is not the raw sum.** The bulk export hands back the file the device

@@ -46,6 +46,17 @@
       </div>
 
       <div class="card">
+        <h2>Noise by place</h2>
+        <p class="readout"><span class="sub" id="noise-note"></span></p>
+        <div class="tilt-row">
+          <button type="button" id="toggle-noise" aria-pressed="false"
+                  aria-describedby="noise-legend">Show segments</button>
+        </div>
+        <!-- Rows built by map.mjs from the same breaks the fill uses. -->
+        <div class="key noise-legend" id="noise-legend" hidden></div>
+      </div>
+
+      <div class="card">
         <h2>Measuring stick</h2>
         <div class="trackbar">
           <label for="tolerance">Detail</label>
