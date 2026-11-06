@@ -3,3 +3,11 @@
 __pycache__/
 screenshots/
 .claude/
+
+# Real Strava exports and anything built from them. An activity trace is a record of
+# where someone lives and when they are not home, so it does not go in a public repo.
+# `days/02-lines/fixture/` and the `data/` built from it are synthetic and are committed,
+# so the page still renders for someone without the export.
+strava-export/
+strava_export*/
+days/02-lines/private/

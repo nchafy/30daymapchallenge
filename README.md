@@ -20,6 +20,7 @@ reachable from another machine.
 | --- | --- |
 | `index.html` | The day index, in a window frame. |
 | `days/00-base/` | The base map with nothing on it. Start here. |
+| `days/02-lines/` | Day 2. How much of a GPS trace is noise. `docs/gps-noise.md`. |
 | `days/_template/` | Copy this to start a day. |
 | `assets/basemap.mjs` | `createBaseMap()`, the three basemaps, the switcher. |
 | `assets/chrome.mjs` | Taskbar, Start menu, detail panel, group boxes and tables. |
@@ -27,6 +28,7 @@ reachable from another machine.
 | `assets/xp.css` | The Luna theme. The only file that knows what decade this is. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
 | `docs/basemap.md` | Basemap sources, their licences, and how to write a day. |
+| `docs/gps-noise.md` | Day 2's method, what was verified against what, and the privacy rules for a Strava export. |
 
 ## A day in four steps
 
