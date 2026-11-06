@@ -35,6 +35,20 @@ import gpsnoise as gn  # noqa: E402
 HERE = pathlib.Path(__file__).resolve().parent
 ACTIVITY_SUFFIXES = (".gpx", ".fit", ".tcx", ".gpx.gz", ".fit.gz", ".tcx.gz")
 
+#: Where a real run writes, and where the page looks first.
+#:
+#: This is gitignored, and that is the whole reason it exists. The obvious default was
+#: `data/`, which is committed so the page renders for someone without an export -- and
+#: which therefore means the documented command overwrites tracked files with real traces
+#: and the next `git add -A` publishes somebody's home address. An activity trace says
+#: where you live and when you are out.
+#:
+#: So: `data/` holds the synthetic fixture and is committed, `private/` holds real output
+#: and cannot be, and `map.mjs` tries `private/` first and falls back to `data/`. Writing
+#: into `data/` now takes an explicit `--out`, which is what regenerating the fixture does.
+PRIVATE_OUT = HERE / "private"
+FIXTURE_OUT = HERE / "data"
+
 #: Decimal places the coordinates are written at, and quantised to *before* anything is
 #: measured. About 0.11 m at this latitude -- an order of magnitude finer than the
 #: receiver, so nothing real is lost, and it roughly halves the file.
@@ -206,10 +220,43 @@ def resolve_distance_unit(
     return 0.0, f"{column}: no unit fits -- refused ({detail})"
 
 
+def activity_id(path: pathlib.Path, taken: set) -> str:
+    """A filename-safe id for one activity, unique within a run.
+
+    Strips only the suffixes this tool knows, rather than splitting on the first dot.
+    `2026-01-01.run.gpx` and `2026-01-01.ride.gpx` both reduce to `2026-01-01` under a
+    split: the second document overwrites the first, and `index.json` carries two rows
+    with the same id -- which `map.mjs` then fetches twice, draws twice, and counts twice
+    in its total distance. Strava's own `<id>.gpx.gz` never collides, so this only bites a
+    hand-assembled directory, which is exactly the case nobody tests.
+
+    `taken` is mutated, so callers get a distinct id per file even when the stems match.
+    """
+    name = path.name
+    for suffix in sorted(ACTIVITY_SUFFIXES, key=len, reverse=True):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    stem = name or path.name
+    if stem not in taken:
+        taken.add(stem)
+        return stem
+    n = 2
+    while f"{stem}-{n}" in taken:
+        n += 1
+    taken.add(f"{stem}-{n}")
+    return f"{stem}-{n}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("targets", nargs="+", type=pathlib.Path)
-    ap.add_argument("--out", type=pathlib.Path, default=HERE / "data")
+    ap.add_argument(
+        "--out",
+        type=pathlib.Path,
+        default=PRIVATE_OUT,
+        help=f"where to write (default {PRIVATE_OUT.name}/, which is gitignored)",
+    )
     ap.add_argument("--no-match", action="store_true", help="skip map matching (no network)")
     ap.add_argument("--limit", type=int, default=0, help="stop after N activities")
     ap.add_argument("--costing", default="", help="force a Valhalla costing model")
@@ -229,6 +276,15 @@ def main() -> int:
         csv_rows.update(read_strava_csv(d))
         if not csv_rows and (d.parent / "activities.csv").is_file():
             csv_rows.update(read_strava_csv(d.parent))
+
+    # Say where the output is going, every run. The difference between the ignored path
+    # and the committed one is the difference between a private file and a published one,
+    # so it is not something to leave implicit.
+    out = args.out.resolve()
+    if out == FIXTURE_OUT.resolve():
+        print(f"writing to {out} -- this directory is COMMITTED. Only the fixture belongs here.")
+    else:
+        print(f"writing to {out}")
 
     args.out.mkdir(parents=True, exist_ok=True)
     measured: list[tuple[pathlib.Path, gn.Measured]] = []
@@ -313,6 +369,7 @@ def main() -> int:
         print("  no distance column resolved: the page will show no Strava figure.")
 
     index = []
+    used_ids: set[str] = set()
     for p, m in measured:
         meta = csv_rows.get(p.name, {})
         strava_m = None
@@ -323,7 +380,7 @@ def main() -> int:
                 strava_m, strava_col = v * scale, col
                 break
 
-        aid = p.name.split(".")[0]
+        aid = activity_id(p, used_ids)
         # Already quantised above, so this round only formats; the geometry written is
         # byte-for-byte the geometry measured.
         rec_lonlat = np.round(np.column_stack([m.track.lon, m.track.lat]), COORD_DP).tolist()

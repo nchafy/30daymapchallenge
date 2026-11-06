@@ -49,6 +49,13 @@ const CASING = 'rgba(8, 14, 32, 0.75)';
 //: the key named a cyan line that was nowhere on the map. So the snapped path reads as a
 //: band and the recorded trace runs along the top of it, which also says the right thing
 //: -- the snapped line is the route, the jitter is what sits on it.
+//: Opacity of a trace that is not the selected one. Used by `draw` and by the click
+//: handler, which both build the same expression -- so it is a constant, not two numbers.
+//: They were 0.85 and 0.35, which meant selecting a trace and then switching basemap
+//: un-dimmed the other five while the panel still named one as selected.
+const DIM = 0.4;
+const FULL = 1;
+
 const WIDTH = {
   matchedCasing: 11,
   matched: 8,
@@ -94,7 +101,7 @@ function recordedData() {
   let allPoints = 0;
   for (const act of activities) {
     const keep = simplifyMask(act.projected, tolerance);
-    const coords = simplifiedCoords(act.doc.recorded, act.projected, keep);
+    const coords = simplifiedCoords(act.doc.recorded, keep);
     total += planeLength(act.projected, keep);
     for (let i = 0; i < keep.length; i += 1) keptPoints += keep[i];
     allPoints += keep.length;
@@ -252,16 +259,43 @@ function boundsOf(acts) {
   return any ? [[west, south], [east, north]] : null;
 }
 
+//: Where the activity data might be, most private first.
+//:
+//: `private/` is what `prepare.py` writes by default and is gitignored; `data/` holds the
+//: synthetic fixture and is committed so this page renders for someone with no Strava
+//: export. Preferring `private/` means running the pipeline on a real export just works,
+//: and the real data has nowhere to go that could be committed by accident.
+const DATA_DIRS = ['./private', './data'];
+
 async function loadActivities() {
-  const index = await fetch('./data/index.json').then((r) => {
-    if (!r.ok) throw new Error(`index.json: HTTP ${r.status}`);
-    return r.json();
-  });
+  let base = null;
+  let index = null;
+  const tried = [];
+  for (const dir of DATA_DIRS) {
+    try {
+      const response = await fetch(`${dir}/index.json`);
+      if (!response.ok) {
+        tried.push(`${dir}: HTTP ${response.status}`);
+        continue;
+      }
+      index = await response.json();
+      base = dir;
+      break;
+    } catch (err) {
+      tried.push(`${dir}: ${err.message}`);
+    }
+  }
+  if (!index) {
+    // Names every path that was tried. "No data" with no list of where it looked is the
+    // kind of error message that costs an afternoon.
+    throw new Error(tried.join('; '));
+  }
+
   const rows = index.activities || [];
   const docs = await Promise.all(
     rows.map((row) =>
-      fetch(`./data/${row.id}.json`).then((r) => {
-        if (!r.ok) throw new Error(`${row.id}.json: HTTP ${r.status}`);
+      fetch(`${base}/${row.id}.json`).then((r) => {
+        if (!r.ok) throw new Error(`${base}/${row.id}.json: HTTP ${r.status}`);
         return r.json();
       })
     )
@@ -338,7 +372,9 @@ const base = await createBaseMap({
           'line-width': WIDTH.recorded,
           //: The selected activity is widened rather than recoloured: a second colour
           //: would compete with the two the key already explains.
-          'line-opacity': ['case', ['==', ['get', 'id'], selectedId ?? ''], 1, 0.85],
+          'line-opacity': selectedId
+            ? ['case', ['==', ['get', 'id'], selectedId], FULL, DIM]
+            : FULL,
         },
       },
       ctx.beforeId
@@ -427,7 +463,7 @@ if (base) {
     openActivity(id);
     if (map.getLayer(RECORDED)) {
       map.setPaintProperty(RECORDED, 'line-opacity', [
-        'case', ['==', ['get', 'id'], id], 1, 0.35,
+        'case', ['==', ['get', 'id'], id], FULL, DIM,
       ]);
     }
     const act = activities.find((a) => a.id === id);
@@ -445,7 +481,7 @@ if (base) {
     panel.onClose = () => {
       selectedId = null;
       if (map.getLayer(RECORDED)) {
-        map.setPaintProperty(RECORDED, 'line-opacity', 0.85);
+        map.setPaintProperty(RECORDED, 'line-opacity', FULL);
       }
     };
   }

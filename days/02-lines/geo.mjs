@@ -137,7 +137,7 @@ export function simplifyMask({ x, y }, tolerance) {
 }
 
 /* Simplify to a [lon, lat] ring, for handing to MapLibre. */
-export function simplifiedCoords(coords, projected, keep) {
+export function simplifiedCoords(coords, keep) {
   const out = [];
   for (let i = 0; i < coords.length; i += 1) {
     if (keep[i]) out.push(coords[i]);

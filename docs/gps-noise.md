@@ -25,7 +25,14 @@ out. There is no setting at which the number is right.
 ```
 
 Reads GPX, FIT and TCX (gzipped or not), measures each activity, snaps it to the network,
-and writes one JSON per activity plus an `index.json` into `days/02-lines/data/`.
+and writes one JSON per activity plus an `index.json` into `days/02-lines/private/`, which
+is gitignored. The page looks there first and falls back to the committed
+`days/02-lines/data/`, which holds the synthetic fixture.
+
+Writing into `data/` takes an explicit `--out` and is only for regenerating the fixture.
+The split is deliberate: `data/` is tracked, so a default that wrote there would mean the
+command above overwrites committed files with real traces, and the next `git add -A`
+publishes them.
 
 | File | What it is |
 | --- | --- |
@@ -130,10 +137,19 @@ and an early version read a kilometres column as miles.
 
 ## Privacy and licensing
 
-An activity trace records where someone lives and when they are not home. Real exports and
-anything built from them are gitignored. `days/02-lines/fixture/` and the `data/` built
-from it are synthetic and are committed, so the page renders for someone without the
-export.
+An activity trace records where someone lives and when they are not home.
+
+- Real exports are gitignored (`strava-export/`, `strava_export*/`).
+- `prepare.py` writes to `days/02-lines/private/`, which is gitignored, and prints where
+  it is writing on every run.
+- `days/02-lines/fixture/` and the `data/` built from it are synthetic and are committed,
+  so the page renders for someone with no export.
+
+The private output path is not a convenience. The first version defaulted to `data/`,
+which is tracked — so following the documented command and committing would have published
+real home locations to a public repo, while this document claimed the opposite. It was
+caught by review, not by a check, which is why `prepare.py` now also says the destination
+out loud.
 
 Map matching uses the [FOSSGIS](https://www.fossgis.de/) public Valhalla instance at
 `valhalla1.openstreetmap.de`, which is a volunteer-run service. `prepare.py` identifies

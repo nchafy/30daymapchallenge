@@ -8,7 +8,10 @@
 import { createBaseMap } from '../../assets/basemap.mjs';
 import { mountChrome, group } from '../../assets/chrome.mjs';
 
-const { panel } = mountChrome({ here: 'NN-slug' });
+// `here` MUST equal this folder's name under `days/`. It marks the day in the Start menu
+// and it is what registers the window in the taskbar, so a value that does not match a
+// `dir` in `assets/days.mjs` is dropped and the page gets no taskbar button.
+const { panel } = mountChrome({ here: 'NN-THEME-SLUG' });
 
 const base = await createBaseMap({
   container: 'map',

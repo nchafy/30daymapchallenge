@@ -313,6 +313,40 @@ def test_distance_unit_resolution() -> None:
           f"units are {gap:.3f} apart")
 
 
+def test_activity_id_collisions() -> None:
+    """`prepare.activity_id` must not collapse two activities onto one id.
+
+    The id names the file the page fetches, so a collision is not a cosmetic clash: the
+    second document overwrites the first, `index.json` carries the id twice, and the page
+    loads that one activity twice and adds its distance to the total twice.
+    """
+    import prepare
+
+    taken: set[str] = set()
+    ids = [
+        prepare.activity_id(pathlib.Path(p), taken)
+        for p in (
+            "12345.gpx.gz",
+            "2026-01-01.run.gpx",
+            "2026-01-01.ride.gpx",
+            "2026-01-01.ride.gpx",
+            "67890.fit.gz",
+            "67890.tcx",
+        )
+    ]
+    check("activity ids are all distinct", len(set(ids)) == len(ids), str(ids))
+    check("the plain Strava name is unchanged", ids[0] == "12345", ids[0])
+    check(
+        "a dotted stem keeps its whole stem",
+        ids[1] == "2026-01-01.run" and ids[2] == "2026-01-01.ride",
+        f"{ids[1]!r}, {ids[2]!r} -- splitting on the first dot would give '2026-01-01' twice",
+    )
+    check("a true duplicate is suffixed", ids[3] == "2026-01-01.ride-2", ids[3])
+    # Same stem, different format: these are two files and must stay two activities.
+    check("same stem with different suffixes stays distinct", ids[4] != ids[5],
+          f"{ids[4]!r} vs {ids[5]!r}")
+
+
 def test_file_parsers() -> None:
     """Round-trip a tiny GPX and TCX through the readers.
 
@@ -368,8 +402,6 @@ def negative_control() -> int:
        the synthetic inflation.
     3. Decoding Valhalla polylines at precision 5. Must break the precision check.
     """
-    import copy
-
     print("\n-- negative control: each sabotage must produce a failure --")
     failures_seen = 0
     sabotages = [
@@ -392,7 +424,6 @@ def negative_control() -> int:
         else:
             print(f"FAIL sabotage NOT caught: {label}. The check cannot fail, so it checks nothing.")
     FAILURES.clear()
-    _ = copy
     return 0 if failures_seen == len(sabotages) else 1
 
 
@@ -440,6 +471,7 @@ TESTS = [
     test_synthetic_inflation_matches_theory,
     test_simplification_recovers_truth,
     test_distance_unit_resolution,
+    test_activity_id_collisions,
     test_file_parsers,
 ]
 

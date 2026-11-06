@@ -29,6 +29,7 @@ reachable from another machine.
 | `assets/xp.css` | The Luna theme. The only file that knows what decade this is. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
 | `scripts/zoom_icon.py` | Captures the desktop icons at 8x, for judging 32 px art. |
+| `scripts/measure_wallpaper.py` | Measures the wallpaper drawn and removed, to set `check.py`'s threshold from data. |
 | `docs/basemap.md` | Basemap sources, their licences, and how to write a day. |
 | `docs/gps-noise.md` | Day 2's method, what was verified against what, and the privacy rules for a Strava export. |
 
@@ -38,12 +39,14 @@ reachable from another machine.
 cp -r days/_template days/07-ten-minute-map
 ```
 
-Then replace `NN` and `THEME` in its two files, set `dir` on day 7's row in
-`assets/days.mjs`, and write the overlay in `map.mjs`.
+Then, in its two files, replace `NN` and `THEME` with the day and its theme, and
+`NN-THEME-SLUG` with the folder name — `07-ten-minute-map`. Set `dir` to the same folder
+name on day 7's row in `assets/days.mjs`, and write the overlay in `map.mjs`.
 
-Setting `dir` is what turns the desktop icon into a link and what lets the taskbar name
-the window. Until you do, the page still works if you type its URL, and its taskbar is
-empty — `taskbar.mjs` only knows the days `days.mjs` declares.
+Those two have to agree. `dir` is what turns the desktop icon into a link; the `here`
+passed to `mountChrome` is what registers the window in the taskbar, and a `here` that is
+not a `dir` in `days.mjs` is dropped, so the page gets no taskbar button and
+`scripts/check.py` fails without saying why.
 
 `draw(map, ctx)` is called once per basemap load, against a fresh empty style, so it can
 add its sources unconditionally. State that must survive a basemap switch lives outside

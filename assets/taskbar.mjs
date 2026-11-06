@@ -37,15 +37,32 @@ let usingMemory = false;
 
 function read() {
   if (usingMemory) return memory.slice();
+  let raw;
+  // Only a failure to *reach* storage means storage is unavailable. Reading and then
+  // failing to parse means the value is damaged, which is a different problem with a
+  // different fix -- and conflating the two used to latch `usingMemory` permanently, so a
+  // single corrupt value stopped the bar persisting in that browser for good, with the
+  // bad key still sitting there.
   try {
-    const raw = window.localStorage.getItem(STORE_KEY);
-    const list = raw ? JSON.parse(raw) : [];
+    raw = window.localStorage.getItem(STORE_KEY);
+  } catch {
+    usingMemory = true;
+    return memory.slice();
+  }
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
     // Anything no longer a real day is dropped on read, so a renamed folder or a stale
     // entry from an older version cannot put a dead button in the bar.
     return Array.isArray(list) ? list.filter((dir) => ENTRIES.has(dir)) : [];
   } catch {
-    usingMemory = true;
-    return memory.slice();
+    // Damaged beyond use. Clear it rather than work around it forever.
+    try {
+      window.localStorage.removeItem(STORE_KEY);
+    } catch {
+      usingMemory = true;
+    }
+    return [];
   }
 }
 
@@ -79,10 +96,6 @@ export function closeWindow(dir) {
   const list = read().filter((entry) => entry !== dir);
   write(list);
   return list;
-}
-
-export function closeAll() {
-  write([]);
 }
 
 /* One button: a link that goes to the day, and a close box that forgets it.

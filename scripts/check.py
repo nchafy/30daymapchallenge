@@ -484,8 +484,19 @@ INK_SLACK = 60
 #: request that can 404 and nothing in the console if it stops drawing. A pixel count is
 #: the only thing that notices.
 DESKTOP_INKS = {"sky": (0x3F, 0x93, 0xDD), "hill": (0x76, 0xB5, 0x2C)}
-MIN_DESKTOP_PIXELS = 2000
 DESKTOP_INK_SLACK = 34
+#: Measured by `scripts/measure_wallpaper.py`, which renders the desktop with the
+#: wallpaper and then with it removed, at both viewports:
+#:
+#:                      sky      hill
+#:   healthy        101,841   116,286   (worst of the two viewports)
+#:   no wallpaper        22       119
+#:
+#: 10,000 is about 80x above the broken case and 10x below the healthy one. The first
+#: value was guessed at 2,000 and could not fail at 1280x820, because the count then
+#: included the taskbar -- whose blue is inside the slack for the sky. Excluding
+#: `.taskbar` is what moved the broken case from 3,087 to 22.
+MIN_DESKTOP_PIXELS = 10_000
 
 
 def days_with_pages() -> list[str]:
@@ -523,7 +534,6 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
           return {
             icons: icons.length,
             links: links.map((a) => a.getAttribute('href')),
-            labels: links.map((a) => a.textContent.trim()),
             badges: [...document.querySelectorAll('#icons .icon-art[data-n]')].length,
             tasks: document.querySelectorAll('.task-items .task-button').length,
           };
@@ -563,6 +573,16 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
 
     # Opening a day from its icon must put a button in the bar, and the button must say it
     # is the one in front.
+    #
+    # Returning early rather than indexing blind: if `index.mjs` threw before rendering,
+    # there are no links, and an IndexError here would take the whole run down with a
+    # traceback -- discarding the icon-count and dead-link failures already collected,
+    # which are the ones that would name the real problem.
+    if not shape["links"]:
+        failures.append(
+            f"desktop/{viewport}: no icon is a link, so the taskbar cannot be checked"
+        )
+        return failures
     first = shape["links"][0]
     page.evaluate(
         f"document.querySelector('#icons .icon-link[href=\"{first}\"]').click()"
@@ -574,7 +594,6 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
           return {
             count: buttons.length,
             current: buttons.filter((b) => b.dataset.current).length,
-            labels: buttons.map((b) => b.querySelector('.task-label').textContent.trim()),
           };
         })()"""
     )
@@ -595,7 +614,6 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
               return {
                 count: buttons.length,
                 current: buttons.filter((b) => b.dataset.current).length,
-                currentLabel: (buttons.find((b) => b.dataset.current) || {}).textContent || '',
               };
             })()"""
         )
@@ -629,17 +647,33 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
             )
 
         # And the close box on a button really closes that window.
+        # The dir, not the label. Comparing the button's *text* against the stored
+        # *folder names* is a check that cannot fail: 'Base map' is never a substring of
+        # '["00-base","02-lines"]', so the branch below was unreachable. The bug it is
+        # meant to catch is real -- if `write()` has fallen back to memory, `closeWindow`
+        # drops the entry from memory and leaves it in localStorage, the DOM rerenders
+        # correctly from `read()`, and only the stored value shows that it will come back
+        # on the next reload.
         closed = page.evaluate(
-            """(() => {
+            r"""(() => {
+              const dirOf = (node) => {
+                const href = node.querySelector('.task-label').getAttribute('href');
+                return href.replace(/\/+$/, '').split('/').pop();
+              };
               const first = document.querySelector('.task-items .task-button');
+              const dir = dirOf(first);
               const label = first.querySelector('.task-label').textContent.trim();
               first.querySelector('.task-close').click();
               const left = [...document.querySelectorAll('.task-items .task-button')];
+              let stored = null;
+              try { stored = JSON.parse(window.localStorage.getItem('30dmc:open') || '[]'); }
+              catch { stored = 'unparseable'; }
               return {
-                closed: label,
+                closed: dir,
+                label,
                 count: left.length,
-                labels: left.map((b) => b.querySelector('.task-label').textContent.trim()),
-                stored: window.localStorage.getItem('30dmc:open'),
+                dirs: left.map(dirOf),
+                stored,
               };
             })()"""
         )
@@ -648,21 +682,30 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
                 f"desktop/{viewport}: closing one of two windows left "
                 f"{closed['count']}, want 1"
             )
-        elif closed["closed"] in closed["labels"]:
+        elif closed["closed"] in closed["dirs"]:
             failures.append(
                 f"desktop/{viewport}: closed {closed['closed']!r} and it is still in the bar"
             )
-        elif closed["closed"] in (closed["stored"] or ""):
+        elif closed["stored"] == "unparseable":
+            failures.append(
+                f"desktop/{viewport}: the open-window list in localStorage is not valid JSON"
+            )
+        elif closed["closed"] in closed["stored"]:
             failures.append(
                 f"desktop/{viewport}: closed {closed['closed']!r} but it is still in "
-                f"localStorage, so it comes back on reload"
+                f"localStorage {closed['stored']}, so it comes back on reload"
             )
         else:
-            print(f"  (opened two, closed {closed['closed']!r}, {closed['count']} left)")
+            print(
+                f"  (opened two, closed {closed['label']!r} -> {closed['closed']}, "
+                f"{closed['count']} left, stored {closed['stored']})"
+            )
 
     # The wallpaper is CSS, so nothing fails loudly if it stops drawing.
     shot = out_dir / f"desktop-{viewport}.png"
-    counts = count_pixels(page, shot, DESKTOP_INKS, DESKTOP_INK_SLACK, blockers=False)
+    counts = count_pixels(
+        page, shot, DESKTOP_INKS, DESKTOP_INK_SLACK, exclude=DESKTOP_EXCLUDE
+    )
     for name in DESKTOP_INKS:
         if counts[name] < MIN_DESKTOP_PIXELS:
             failures.append(
@@ -679,8 +722,25 @@ def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str
     return failures
 
 
+#: Where each pixel count measures, and what it skips inside that region. Written as
+#: selectors so the rectangles come from the live layout rather than from constants here.
+LINE_REGION = "#map"
+LINE_EXCLUDE = ".overlays > *, .map-zoom, .detail, .map-attrib"
+#: The wallpaper fills the viewport, so the region is everything -- minus the taskbar,
+#: which is the whole reason this is a parameter. Luna's bar is a blue gradient whose top
+#: stop is #3f8cf3 and whose window buttons start at #4a90f0; both sit inside the slack
+#: for the sky's #3f93dd. Counting them made the sky check unfailable at 1280x820: with
+#: the wallpaper removed entirely it still found 3,087 "sky" pixels, over the threshold.
+DESKTOP_EXCLUDE = ".taskbar"
+
+
 def count_pixels(
-    page, target: Path, inks: dict, slack: int, blockers: bool = True
+    page,
+    target: Path,
+    inks: dict,
+    slack: int,
+    region: str | None = None,
+    exclude: str = "",
 ) -> dict:
     """Screenshot the page and count how many pixels of each named colour are on screen.
 
@@ -700,22 +760,28 @@ def count_pixels(
     from PIL import Image
 
     rects = page.evaluate(
-        """(() => {
-          const el = document.getElementById('map');
-          const map = el ? el.getBoundingClientRect() : null;
-          const blockers = [...document.querySelectorAll('.overlays > *, .map-zoom, .detail, .map-attrib')]
-            .filter((node) => !node.hidden && node.getBoundingClientRect().width > 0)
-            .map((node) => {
-              const r = node.getBoundingClientRect();
-              return [r.left, r.top, r.right, r.bottom];
-            });
+        """((regionSelector, excludeSelector) => {
+          const el = regionSelector ? document.querySelector(regionSelector) : null;
+          const region = el ? el.getBoundingClientRect() : null;
+          const blockers = excludeSelector
+            ? [...document.querySelectorAll(excludeSelector)]
+                .filter((node) => !node.hidden && node.getBoundingClientRect().width > 0)
+                .map((node) => {
+                  const r = node.getBoundingClientRect();
+                  return [r.left, r.top, r.right, r.bottom];
+                })
+            : [];
           return {
-            map: map ? [map.left, map.top, map.right, map.bottom] : null,
+            region: region ? [region.left, region.top, region.right, region.bottom] : null,
             blockers,
             view: [window.innerWidth, window.innerHeight],
           };
-        })()"""
+        })(%r, %r)""" % (region or "", exclude)
     )
+    if region and rects["region"] is None:
+        # A harness that cannot find what it was pointed at must say so, not measure the
+        # whole page and report a number.
+        raise CDPError(f"count_pixels: no element matches {region!r}")
     data = page.call("Page.captureScreenshot", format="png")
     blob = base64.b64decode(data["data"])
     target.write_bytes(blob)
@@ -729,12 +795,11 @@ def count_pixels(
     def scaled(box):
         return [int(box[0] * sx), int(box[1] * sy), int(box[2] * sx), int(box[3] * sy)]
 
-    if blockers and rects["map"]:
-        left, top, right, bottom = scaled(rects["map"])
-        skip = [scaled(b) for b in rects["blockers"]]
+    if rects["region"]:
+        left, top, right, bottom = scaled(rects["region"])
     else:
         left, top, right, bottom = 0, 0, image.width, image.height
-        skip = []
+    skip = [scaled(b) for b in rects["blockers"]]
 
     pixels = image.load()
     counts = {name: 0 for name in inks}
@@ -1054,7 +1119,9 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     )
     settle(page)
     shot = out_dir / f"lines-{viewport}.png"
-    counts = count_pixels(page, shot, LINE_INKS, INK_SLACK)
+    counts = count_pixels(
+        page, shot, LINE_INKS, INK_SLACK, region=LINE_REGION, exclude=LINE_EXCLUDE
+    )
     for name in LINE_INKS:
         if counts[name] < MIN_LINE_PIXELS:
             failures.append(

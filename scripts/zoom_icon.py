@@ -28,6 +28,11 @@ PORT = 8099
 
 
 def main() -> int:
+    # `screenshots/` is gitignored, so it does not exist in a fresh clone. Without this
+    # the capture succeeds and then the write fails.
+    out = REPO_ROOT / "screenshots" / "icon-zoom.png"
+    out.parent.mkdir(exist_ok=True)
+
     server = subprocess.Popen(
         [sys.executable, "-m", "http.server", str(PORT), "--bind", "127.0.0.1"],
         cwd=REPO_ROOT,
@@ -41,6 +46,10 @@ def main() -> int:
                 break
             except OSError:
                 time.sleep(0.1)
+        else:
+            # Named, not left to surface as a confusing browser error further down.
+            print(f"server did not come up on port {PORT}", file=sys.stderr)
+            return 1
         with Browser() as browser:
             page = browser.page()
             page.call("Runtime.enable")
@@ -83,7 +92,6 @@ def main() -> int:
                     "scale": 8,
                 },
             )
-            out = REPO_ROOT / "screenshots" / "icon-zoom.png"
             out.write_bytes(base64.b64decode(data["data"]))
             print(f"wrote {out} from clip {box}")
     finally:
