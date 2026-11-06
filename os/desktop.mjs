@@ -6,7 +6,7 @@
  * wrong when they rebuild this. Each icon is a link, so Enter and a tap both work.
  */
 
-import { DEFAULT_KIND, isAvailable, usableEntries } from './entries.mjs';
+import { DEFAULT_KIND, iconNode, isAvailable, usableEntries } from './entries.mjs';
 
 /* One icon.
  *
@@ -18,9 +18,20 @@ function icon(entry) {
 
   const art = document.createElement('span');
   art.className = 'icon-art';
-  // The stylesheet picks the art from this. An unknown kind gets the default rather than
-  // no background at all, which would be an invisible icon.
-  art.dataset.kind = entry.kind || DEFAULT_KIND;
+
+  const own = iconNode(entry, 'renderDesktop');
+  if (own) {
+    // The host supplied the art. `data-art="node"` is what tells the stylesheet not to
+    // also paint a background behind it, and it is what lets this work under a
+    // Content-Security-Policy that forbids `data:` images -- see `entries.mjs`.
+    art.dataset.art = 'node';
+    art.append(own);
+  } else {
+    // The stylesheet picks the art from this. An unknown kind gets the default rather
+    // than no background at all, which would be an invisible icon.
+    art.dataset.kind = entry.kind || DEFAULT_KIND;
+  }
+
   if (entry.badge) {
     // Thirty icons of one kind would be the right imitation and the wrong interface: the
     // badge is how a reader tells them apart.

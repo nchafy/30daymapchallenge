@@ -9,9 +9,29 @@
  *       id,          // stable, unique. The key the open-window list stores.
  *       label,       // what the reader sees, in all three places.
  *       href,        // where activating it goes. Omit for an entry that is not a target.
- *       kind,        // optional. Picks the icon art; unknown kinds get the default.
+ *       kind,        // optional. Picks the icon art from the stylesheet.
+ *       icon,        // optional. A Node, or a function returning one, used instead.
  *       badge,       // optional. A short string drawn on the icon's corner.
  *     }
+ *
+ * ## `kind` versus `icon`, and why both exist
+ *
+ * `kind` is cheap: the stylesheet draws the art as a `data:image/svg+xml` background, so
+ * thirty-one icons cost no requests and the markup stays empty.
+ *
+ * It is also unusable under a strict Content-Security-Policy. `img-src` governs images
+ * loaded from CSS, not only from markup, so under `img-src 'self'` with no `data:` every
+ * icon renders as a 32px nothing -- the element is there, the computed
+ * `background-image` is correct, and the box is blank. A consumer of this shell hit
+ * exactly that.
+ *
+ * So `icon` is the escape hatch: give an entry a Node and `renderDesktop` puts that in the
+ * art slot and tells the stylesheet to draw no background. An inline `<svg>` built with
+ * `createElementNS` needs no fetch and no policy exception.
+ *
+ * **A Node, never a string.** Nothing in this shell reaches the page as markup, and an
+ * `<svg>` string from a host would be an injection vector wearing a convenience API. A
+ * host that has a string already can parse it itself and own that decision.
  *
  * `href` absent means "listed but not available" — the icon greys out and the Start menu
  * renders it as text rather than a dead link. That is a state worth having: this project's
@@ -36,6 +56,30 @@ export const DEFAULT_KIND = 'doc';
 /** True when an entry can be activated. */
 export function isAvailable(entry) {
   return Boolean(entry && entry.href);
+}
+
+/**
+ * An entry's own icon node, or null to let the stylesheet draw it.
+ *
+ * A function is called once per render, so a host can hand the same entry to the desktop
+ * and the Start menu without one of them getting an already-parented node -- appending a
+ * Node moves it, so sharing one instance between two slots silently empties the first.
+ *
+ * @returns {Node|null}
+ */
+export function iconNode(entry, where = 'iconNode') {
+  const source = entry && entry.icon;
+  if (!source) return null;
+  const node = typeof source === 'function' ? source(entry) : source;
+  if (node instanceof Node) return node;
+  // A string is the likely mistake, and silently ignoring it means a blank icon with no
+  // explanation. Say which entry, and why.
+  console.warn(
+    `${where}: entry ${entry.id} has an icon that is not a Node ` +
+      `(${typeof node}). Build one with document.createElementNS; a markup string is ` +
+      `not accepted.`
+  );
+  return null;
 }
 
 /**

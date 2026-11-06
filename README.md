@@ -100,7 +100,33 @@ catalogue, built `/days/<dir>/` URLs by hand in three separate modules, and call
 that same catalogue, silently emptied the taskbar of any site that was not this one. "I
 have no windows to show" and "I was not asked to manage this bar" are different states.
 
-Both of those are checks now, not intentions:
+### Icon art, and a Content-Security-Policy
+
+`kind` is cheap: `os/desktop.css` draws the art as a `data:image/svg+xml` background, so
+thirty-one icons cost no requests.
+
+It does not survive a strict CSP. `img-src` governs images loaded from CSS, not only from
+markup, so under `img-src 'self'` with no `data:` the icons go blank — and the element is
+present with a *correct* computed `background-image`, which is what makes it expensive to
+diagnose. Measured by `scripts/measure_csp.py`: 0 pixels painted, and Chrome does log
+`Loading the image 'data:image/svg+xml,…' violates the following Content Security Policy
+directive: "img-src 'self'"`.
+
+So an entry may bring its own art instead:
+
+```js
+{ id: 'trees', label: 'Street trees', href: '/trees/', icon: () => buildSvgNode() }
+```
+
+A **Node**, or a function returning one — never a markup string. Nothing in this shell
+reaches the page as markup, and an `<svg>` string from a host would be an injection vector
+wearing a convenience API. A host holding a string can parse it itself and own that call.
+`renderDesktop` puts the node in the art slot and sets `data-art="node"`, which is what
+tells the stylesheet to paint nothing behind it.
+
+### Everything above is a check
+
+Not an intention:
 
 - `check_os_independent` reads every module under `os/` and fails on an import that leaves
   the directory. Static, because an import that only fires on one page would otherwise
@@ -108,6 +134,12 @@ Both of those are checks now, not intentions:
 - `os/conformance.html` is a fixture standing in for a foreign host: it server-renders two
   taskbar buttons, calls `mountShell()` with no entries, and the harness requires both
   buttons to survive.
+- `os/conformance-csp.html` sets `img-src 'self'` and draws one icon each way. The harness
+  requires the node one to paint, and only prints what the stylesheet one did — pinning
+  that to zero would be a check that the limitation still exists, and if the art is ever
+  made policy-safe the right outcome is a passing run.
+
+Each of the three was confirmed to fail when its defect was reintroduced.
 
 ## The look
 

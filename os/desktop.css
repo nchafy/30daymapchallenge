@@ -128,6 +128,21 @@ body.desktop::before {
   filter: drop-shadow(1px 1px 1px rgb(0 0 0 / 40%));
 }
 
+/* The host brought its own art, as a node in the slot. No background behind it, and the
+   node is sized to fill: a 32px box with a 24px `<svg>` loose in it reads as misaligned
+   against its neighbours.
+
+   This path exists because the `data:` backgrounds above do not survive a strict
+   Content-Security-Policy -- `img-src` governs images loaded from CSS, so under
+   `img-src 'self'` every icon above renders blank. See `os/entries.mjs`. */
+.icon-art[data-art="node"] { background-image: none; }
+.icon-art[data-art="node"] > svg,
+.icon-art[data-art="node"] > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 /* A globe, the same one the window title bars use. This project gives it to the base map,
    which is not one of the thirty, so an icon says so without the reader parsing a label. */
 .icon-art[data-kind="globe"] {

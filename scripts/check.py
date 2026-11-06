@@ -836,6 +836,73 @@ def check_os_conformance(page, viewport: str, base_url: str) -> list[str]:
     return failures
 
 
+#: The CSP fixture, and the colour of the art it supplies as a node.
+OS_CSP_PAGE = "/os/conformance-csp.html"
+OS_CSP_INK = {"node-art": (0xFF, 0xCC, 0x00)}
+OS_CSP_SLACK = 40
+#: Measured at 396 px for a 32px icon by `scripts/measure_csp.py`; 150 leaves room for
+#: the art changing shape without letting a blank box through.
+MIN_CSP_ICON_PIXELS = 150
+
+
+def check_os_csp(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
+    """A host under a strict Content-Security-Policy can still draw its icons.
+
+    `os/desktop.css` draws icon art as `data:image/svg+xml` in a `background-image`, and
+    CSP's `img-src` governs images loaded from CSS -- so under `img-src 'self'` with no
+    `data:` that art is refused. Measured, not assumed: the element is present, its
+    computed `background-image` is correct, and the box paints zero pixels.
+
+    So an entry may carry its own Node instead, and that is the thing this check protects.
+    The stylesheet's own count is printed rather than asserted: pinning it to zero would
+    be a check that the limitation still exists, and if someone later makes that art
+    policy-safe the right outcome is a passing run, not a failure.
+    """
+    failures: list[str] = []
+    page.navigate(base_url + OS_CSP_PAGE)
+    time.sleep(1.0)
+
+    boxes = page.evaluate("window.cspFixture ? window.cspFixture.boxes() : null")
+    if not boxes:
+        failures.append(f"os-csp/{viewport}: the fixture did not run")
+        return failures
+
+    shot = out_dir / f"csp-icons-{viewport}.png"
+    counts = count_pixels(page, shot, OS_CSP_INK, OS_CSP_SLACK)
+
+    node = next((b for b in boxes if b["art"] == "node"), None)
+    css = next((b for b in boxes if b["art"] is None), None)
+
+    if node is None:
+        failures.append(
+            f"os-csp/{viewport}: no icon rendered from a node, so the escape hatch for a "
+            f"host under a strict policy is gone"
+        )
+    else:
+        if node["svgChildren"] != 1:
+            failures.append(
+                f"os-csp/{viewport}: the node icon has {node['svgChildren']} svg children, want 1"
+            )
+        if node["backgroundImage"]:
+            failures.append(
+                f"os-csp/{viewport}: the node icon still has a background-image behind it, "
+                f"so the stylesheet is painting over or under the host's art"
+            )
+        if counts["node-art"] < MIN_CSP_ICON_PIXELS:
+            failures.append(
+                f"os-csp/{viewport}: the node icon painted {counts['node-art']} pixels "
+                f"under `img-src 'self'`, want at least {MIN_CSP_ICON_PIXELS}"
+            )
+
+    if not failures:
+        print(
+            f"  (under img-src 'self': node art paints {counts['node-art']} px; "
+            f"stylesheet art computes "
+            f"{'a background' if css and css['backgroundImage'] else 'nothing'} and is blocked)"
+        )
+    return failures
+
+
 def count_pixels(
     page,
     target: Path,
@@ -1578,6 +1645,7 @@ def main(argv: list[str] | None = None) -> int:
 
                 # The shell, mounted the way a site that is not this one would.
                 failures += check_os_conformance(page, viewport, base)
+                failures += check_os_csp(page, viewport, out_dir, base)
     finally:
         server.terminate()
         try:
