@@ -25,6 +25,11 @@
  * `background-image` is correct, and the box is blank. A consumer of this shell hit
  * exactly that.
  *
+ * Whether anything says so depends on the policy. `os/conformance-csp.html` delivers it
+ * as a `<meta>` with `default-src 'self'` and Chrome logs the refusal; the same blank icon
+ * under a header-delivered `default-src 'none'; img-src 'self'` was measured with no
+ * console output at all. Assume blank and silent.
+ *
  * So `icon` is the escape hatch: give an entry a Node and `renderDesktop` puts that in the
  * art slot and tells the stylesheet to draw no background. An inline `<svg>` built with
  * `createElementNS` needs no fetch and no policy exception.

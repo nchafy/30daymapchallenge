@@ -158,6 +158,60 @@ against the matched length the CSV column sat at a median ratio of 1.003 across 
 activities, where the raw sum was +2.6% above Strava's figure. Strava is already smoothing;
 the naive trackpoint sum is not what it reports.
 
+## Does it depend on where you are?
+
+Yes, and `noise_by_area.py` measures it. Run it against an export:
+
+```
+.venv/bin/python -I days/02-lines/noise_by_area.py ~/path/to/strava_export
+```
+
+Per activity this question cannot be answered — spacing dominates, so comparing places
+would really be comparing how fast you were moving. So it works per **window**: walk each
+trace in 150 m lengths of *simplified* path, measure how much each window is inflated, and
+bin the windows into a ~220 m grid. A cell needs 12 windows from 4+ activities before it
+is reported, because ten passes from one activity is one day's satellite geometry, not a
+property of the place.
+
+### The confound that would otherwise invent a finding
+
+**Standing still looks exactly like bad reception.** Stop at a traffic light with the watch
+running and you get dozens of points inside a four-metre circle: enormous local inflation,
+nothing to do with the sky. Bin that spatially and every junction in a city lights up as a
+GPS black spot — a confident, reproducible, wrong answer.
+
+Two defences, in order:
+
+1. A window only counts when its mean speed is 2.0–5.0 m/s. Windows outside are dropped
+   and counted, so the cost of the filter is visible.
+2. That is not enough on its own, and the script says so rather than assuming. Inside the
+   band, speed still explained **12.6%** of the variance in one export. So each window is
+   compared against the median inflation of other windows *at the same speed* — 40
+   equal-count bins and a median, non-parametric because the relationship is curved — and
+   what gets mapped is the residual. After that, speed explains **0.4%**.
+
+The script prints the variance explained before and after, and warns if over 1% remains.
+Judging it on variance rather than on `r` is deliberate: `r = −0.065` sounds like a
+leftover relationship and is four parts in a thousand.
+
+### What survived
+
+In one 368-activity export, **91% of the between-cell spread survived the speed control** —
+a 2.35-point spread across well-sampled cells, against 2.59 before. So the spatial pattern
+is not mostly speed.
+
+The shape of it: dense, low-rise-to-mid-rise urban grid came out roughly 1.5 to 2.5 points
+noisier than the same runner's quiet residential and suburban cells, with a city's downtown
+core and a brownstone street grid at the top. A large city park, surrounded by the noisiest
+cells in its own borough, sat among the quietest — which points at building geometry rather
+than tree cover, since foliage would predict the opposite.
+
+Treat the mechanism as unestablished. This measures that reception is worse in some places;
+it cannot separate multipath from blocked sky view, and the cells are coordinates rather
+than geocoded descriptions, so naming what is at one is an inference. The grid is written to
+`area-noise.json` beside the measured data — gitignored, because a map of where somebody
+runs is not public information.
+
 ## Two things the page cannot tell you
 
 **Strava's own figure is not the raw sum.** The bulk export hands back the file the device

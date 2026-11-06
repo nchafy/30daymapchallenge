@@ -108,9 +108,15 @@ thirty-one icons cost no requests.
 It does not survive a strict CSP. `img-src` governs images loaded from CSS, not only from
 markup, so under `img-src 'self'` with no `data:` the icons go blank — and the element is
 present with a *correct* computed `background-image`, which is what makes it expensive to
-diagnose. Measured by `scripts/measure_csp.py`: 0 pixels painted, and Chrome does log
-`Loading the image 'data:image/svg+xml,…' violates the following Content Security Policy
-directive: "img-src 'self'"`.
+diagnose. Measured by `scripts/measure_csp.py`: 0 pixels painted.
+
+**Do not rely on the console to tell you.** Against this repo's fixture — a `<meta>` policy
+with `default-src 'self'` — Chrome logs `Loading the image 'data:image/svg+xml,…' violates
+the following Content Security Policy directive: "img-src 'self'"`. Another consumer of
+this shell measured the same blank icon with **no** `Log.entryAdded` and no
+`Runtime.consoleAPICalled` at all, under a header-delivered `default-src 'none'; img-src
+'self'`. Both measurements stand; which factor causes the difference is not established.
+So: blank always, silent under some policies.
 
 So an entry may bring its own art instead:
 
