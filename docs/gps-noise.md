@@ -119,6 +119,45 @@ fixture, built with white noise, is inflated by 20% to 270%.
 The model is the right reference for checking the arithmetic against a known answer and
 the wrong one for predicting a real activity. The fixture is a test, not a claim.
 
+## What a real history turned out to look like
+
+Figures below are from one 401-activity export. They are not in this repo — the export and
+everything built from it are gitignored, so these are quoted as a measurement, not shipped
+as data. Reproduce with `report.py` against your own.
+
+**Inflation is about 1%, not the tens of percent the fixture shows.** Median recorded-over-
+matched across 381 runs was +0.9%, and the running total was +0.8%. That is the correlated-
+noise argument above, confirmed: receiver error drifts over tens of seconds, so consecutive
+points share most of it and their difference carries far less than 2σ².
+
+**Sample spacing predicts it, strongly.** Binning the same export by median step:
+
+| median step | n | median inflation |
+| --- | --- | --- |
+| under 1.5 m | 19 | +61% |
+| 3.0–3.5 m | 210 | +1.4% |
+| 3.5–4.0 m | 158 | +0.2% |
+
+Every activity in the top band was a hike. Walking at 1 Hz puts consecutive points under a
+metre apart — below the receiver's own error — and the trace becomes a random walk. This is
+`expected_inflation`'s step/sigma ratio showing up in real data.
+
+**Matching is not a lower bound.** 107 of 401 activities matched *longer* than they
+recorded, because the matcher follows network geometry where the GPS line cut a corner. Any
+description of matched distance as "the true minimum" is wrong.
+
+**Where matching fails, it fails big, and it looks like noise.** 11 activities matched to
+under 80% of Strava's own figure, all of them hikes on trails OSM does not carry well. Their
+recorded-over-matched ratios reach +265%, which is mostly a lost match rather than a noisy
+trace. `report.py` separates these two by consulting the simplification ladder, which never
+touches a map: if simplifying the recording to a few metres lands near Strava's independent
+figure, the extra length was jitter and the matcher is the thing that is wrong.
+
+**Strava's reported distance is close to the matched one, not the raw one.** Resolved
+against the matched length the CSV column sat at a median ratio of 1.003 across 401
+activities, where the raw sum was +2.6% above Strava's figure. Strava is already smoothing;
+the naive trackpoint sum is not what it reports.
+
 ## Two things the page cannot tell you
 
 **Strava's own figure is not the raw sum.** The bulk export hands back the file the device

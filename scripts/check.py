@@ -433,9 +433,11 @@ def check_attribution(page, viewport: str) -> list[str]:
 #: The layers `days/02-lines/map.mjs` adds, and the page it adds them on.
 LINES_PAGE = "/days/02-lines/"
 LINES_LAYERS = (
-    "recorded",
-    "recorded-casing",
-    "recorded-hit",
+    "all",
+    "all-casing",
+    "all-hit",
+    "focus",
+    "focus-casing",
     "matched",
     "matched-casing",
 )
@@ -821,36 +823,44 @@ def count_pixels(
 def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     """Day 2: the two lines, the slider, and the two implementations of Douglas-Peucker.
 
-    The load-bearing check is the last one. `days/02-lines/geo.mjs` re-implements what
-    `gpsnoise.py` already does, because the slider has to be continuous and so the
-    arithmetic has to run in the browser. Two implementations of one calculation is
-    exactly what drifts apart unnoticed, so this drives the browser's over the same
-    geometry and requires it to agree with the ladder `prepare.py` wrote into the file.
+    The page carries two resolutions and the checks have to tell them apart. An overview
+    of every run, simplified to a stated floor, draws the map; a single run's
+    full-resolution document is fetched when it is selected, and that is the only geometry
+    the slider touches. So the slider is inert until something is selected, and a check
+    that drove it with nothing selected would be measuring nothing and reporting success.
+
+    The load-bearing check is still the ladder. `days/02-lines/geo.mjs` re-implements what
+    `gpsnoise.py` already does, because the slider has to be continuous. Two
+    implementations of one calculation is exactly what drifts apart unnoticed, so this
+    drives the browser's over the same geometry and requires it to agree with the ladder
+    `prepare.py` wrote into the file -- on the integer point counts, which carry no
+    rounding, and on the lengths.
     """
     failures: list[str] = []
     page.navigate(base_url + LINES_PAGE)
-    state = wait_for_map(page)
+    wait_for_map(page)
     settle(page)
 
     info = page.evaluate(
         """(() => {
           const map = window.base.map;
           const present = %s.filter((id) => Boolean(map.getLayer(id)));
-          const box = document.getElementById('map').getBoundingClientRect();
-          const rendered = map.getLayer('recorded')
-            ? map.queryRenderedFeatures({ layers: ['recorded'] }).length
-            : 0;
-          const matched = map.getLayer('matched')
-            ? map.queryRenderedFeatures({ layers: ['matched'] }).length
-            : 0;
+          const rendered = (id) => (map.getLayer(id)
+            ? map.queryRenderedFeatures({ layers: [id] }).length : 0);
+          const slider = document.getElementById('tolerance');
           return {
             present,
-            rendered,
-            matched,
+            all: rendered('all'),
+            matched: rendered('matched'),
+            focus: rendered('focus'),
             activities: window.lines ? window.lines.activities() : [],
+            dataDir: window.lines ? window.lines.dataDir() : null,
+            floor: window.lines ? window.lines.overviewFloor() : null,
+            aggregate: window.lines ? window.lines.aggregate() : null,
+            aggregateText: (document.getElementById('aggregate') || {}).textContent || '',
+            sliderDisabled: slider ? slider.disabled : null,
+            selected: window.lines ? window.lines.selectedId() : 'no api',
             status: (document.getElementById('map-status') || {}).textContent || '',
-            readout: (document.getElementById('readout') || {}).textContent || '',
-            box: [Math.round(box.width), Math.round(box.height)],
           };
         })()"""
         % (list(LINES_LAYERS),)
@@ -861,36 +871,146 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
         failures.append(f"lines/{viewport}: missing layers {sorted(missing)}")
     if not info["activities"]:
         failures.append(
-            f"lines/{viewport}: no activities loaded. Run prepare.py to build "
-            f"days/02-lines/data."
+            f"lines/{viewport}: no activities loaded ({info['status']}). Run prepare.py "
+            f"and then build_overview.py."
         )
-        # Everything below reads an activity, so stop rather than cascade.
         return failures
-    if info["rendered"] < 1:
+    if info["floor"] is None:
+        failures.append(f"lines/{viewport}: no overview floor, so overview.json did not load")
+    if info["all"] < 1:
         failures.append(
-            f"lines/{viewport}: the recorded trace is in the style but nothing rendered. "
+            f"lines/{viewport}: the overview is in the style but nothing rendered. "
             f"A line present and invisible is the failure this is here to catch."
         )
     if info["matched"] < 1:
-        failures.append(f"lines/{viewport}: the snapped trace rendered nothing")
-    if not info["readout"].strip():
-        failures.append(f"lines/{viewport}: the readout is empty")
+        failures.append(f"lines/{viewport}: the snapped traces rendered nothing")
 
-    # Simplifying must shorten the total, and the page must say so.
+    # Nothing is selected on load, so the slider must be inert and say so rather than
+    # silently doing nothing.
+    if info["selected"] is not None:
+        failures.append(
+            f"lines/{viewport}: {info['selected']!r} is selected on load; want nothing"
+        )
+    if info["sliderDisabled"] is not True:
+        failures.append(
+            f"lines/{viewport}: the slider is enabled with no run selected, so dragging "
+            f"it would change no geometry"
+        )
+    if info["focus"] != 0:
+        failures.append(
+            f"lines/{viewport}: the focus layer drew {info['focus']} line(s) with "
+            f"nothing selected"
+        )
+
+    # The aggregate is the answer to the page's question, and it comes from figures
+    # computed at full resolution -- never from the simplified overview being drawn.
+    agg = info["aggregate"] or {}
+    if not agg.get("count"):
+        failures.append(f"lines/{viewport}: the aggregate card counted no activities")
+    elif agg["count"] != len(info["activities"]):
+        failures.append(
+            f"lines/{viewport}: aggregate counts {agg['count']} activities, index has "
+            f"{len(info['activities'])}"
+        )
+    elif not agg.get("recorded"):
+        failures.append(f"lines/{viewport}: the aggregate recorded distance is zero")
+    elif "km" not in info["aggregateText"]:
+        failures.append(f"lines/{viewport}: the aggregate card shows no distance")
+
+    # Selecting a run has to fetch its full-resolution document and arm the slider.
+    chosen = page.evaluate(
+        """(() => window.lines.select(window.lines.activities()[0]).then(() => {
+             const map = window.base.map;
+             const slider = document.getElementById('tolerance');
+             return {
+               id: window.lines.selectedId(),
+               disabled: slider.disabled,
+               focus: map.queryRenderedFeatures({ layers: ['focus'] }).length,
+               rungs: (window.lines.writtenLadder() || []).length,
+               readout: (document.getElementById('readout') || {}).textContent || '',
+             };
+           }))()""",
+        await_promise=True,
+    )
+    if not chosen["id"]:
+        failures.append(f"lines/{viewport}: selecting the first activity selected nothing")
+        return failures
+    if chosen["disabled"]:
+        failures.append(f"lines/{viewport}: the slider is still disabled after a selection")
+    if not chosen["rungs"]:
+        failures.append(
+            f"lines/{viewport}: {chosen['id']} has no written ladder, so the cross-check "
+            f"below cannot run"
+        )
+    if "km" not in chosen["readout"]:
+        failures.append(f"lines/{viewport}: the readout shows no distance for the selection")
+
+    # The duplication guard: the browser's ladder against the one written to disk.
+    agree = page.evaluate(
+        """(() => {
+          const mine = window.lines.ladder();
+          const written = window.lines.writtenLadder();
+          if (!mine || !written || mine.length !== written.length) {
+            return { ok: false, why: 'ladders are different shapes' };
+          }
+          let worst = 0;
+          let worstAt = null;
+          let keptDiff = null;
+          for (let i = 0; i < mine.length; i += 1) {
+            if (mine[i][0] !== written[i][0]) {
+              return { ok: false, why: `tolerance ${mine[i][0]} vs ${written[i][0]}` };
+            }
+            // Absolute metres: the written value is rounded to a fixed number of decimal
+            // places, so the floor on agreement is a constant in metres. A relative bound
+            // would be unstateable -- tight on a long run, impossible on a short one.
+            const diff = Math.abs(mine[i][1] - written[i][1]);
+            if (diff > worst) { worst = diff; worstAt = mine[i][0]; }
+            // The surviving-point count is the stronger signal. It is an integer, so it
+            // carries no rounding: if the two implementations ever decide differently
+            // this moves, whatever the lengths do.
+            if (mine[i][2] !== written[i][2] && keptDiff === null) {
+              keptDiff = { tol: mine[i][0], mine: mine[i][2], written: written[i][2] };
+            }
+          }
+          return { ok: true, worst, worstAt, keptDiff, rungs: mine.length };
+        })()"""
+    )
+    if not agree.get("ok"):
+        failures.append(
+            f"lines/{viewport}: browser and Python ladders disagree ({agree.get('why')}) "
+            f"for {chosen['id']}"
+        )
+    elif agree.get("keptDiff"):
+        d = agree["keptDiff"]
+        failures.append(
+            f"lines/{viewport}: geo.mjs and gpsnoise.py keep different points at "
+            f"tolerance {d['tol']} m on {chosen['id']} ({d['mine']} vs {d['written']})"
+        )
+    elif agree["worst"] > LADDER_AGREEMENT_M:
+        failures.append(
+            f"lines/{viewport}: geo.mjs and gpsnoise.py disagree by {agree['worst']:.4f} m "
+            f"at tolerance {agree['worstAt']} m on {chosen['id']}"
+        )
+    else:
+        print(
+            f"  (ladders agree to {agree['worst'] * 1000:.2f} mm across "
+            f"{agree['rungs']} rungs on {chosen['id']}, same points kept at every rung)"
+        )
+
+    # Simplifying must shorten the selected run, and the page must say so.
     moved = page.evaluate(
         """(() => {
           const slider = document.getElementById('tolerance');
-          const before = window.lines.totalAt(0);
+          const before = window.lines.focusLengthAt(0);
           slider.value = '%s';
           slider.dispatchEvent(new Event('input', { bubbles: true }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => {
             resolve({
               before,
-              after: window.lines.totalAt(%s),
+              after: window.lines.focusLengthAt(%s),
               tolerance: window.lines.tolerance,
               out: (document.getElementById('tolerance-out') || {}).textContent || '',
-              readout: (document.getElementById('readout') || {}).textContent || '',
-              rendered: window.base.map.queryRenderedFeatures({ layers: ['recorded'] }).length,
+              rendered: window.base.map.queryRenderedFeatures({ layers: ['focus'] }).length,
             });
           })));
         })()"""
@@ -905,76 +1025,21 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     if not moved["after"] < moved["before"]:
         failures.append(
             f"lines/{viewport}: simplifying to {LINES_PROBE_TOLERANCE} m did not shorten "
-            f"the total ({moved['before']:.0f} m -> {moved['after']:.0f} m)"
+            f"the selected run ({moved['before']:.0f} m -> {moved['after']:.0f} m)"
         )
     if moved["rendered"] < 1:
-        failures.append(f"lines/{viewport}: nothing rendered after simplifying")
+        failures.append(
+            f"lines/{viewport}: the selected run rendered nothing after simplifying"
+        )
     if f"{LINES_PROBE_TOLERANCE:g} m" not in moved["out"]:
-        failures.append(
-            f"lines/{viewport}: the slider's own value reads {moved['out']!r}"
-        )
-
-    # The duplication guard: the browser's ladder against the one written to disk.
-    agree = page.evaluate(
-        """(() => {
-          const id = window.lines.activities()[0];
-          const mine = window.lines.ladderFor(id);
-          const written = window.lines.writtenLadderFor(id);
-          if (!mine || !written || mine.length !== written.length) {
-            return { ok: false, why: 'ladders are different shapes', id };
-          }
-          let worst = 0;
-          let worstAt = null;
-          let keptDiff = null;
-          for (let i = 0; i < mine.length; i += 1) {
-            if (mine[i][0] !== written[i][0]) {
-              return { ok: false, why: `tolerance ${mine[i][0]} vs ${written[i][0]}`, id };
-            }
-            // Absolute metres, not relative: the written value is rounded to a fixed
-            // number of decimal places, so the floor on agreement is a constant in
-            // metres and a relative bound would be unstateable -- tight on a long
-            // activity and impossible on a short one.
-            const diff = Math.abs(mine[i][1] - written[i][1]);
-            if (diff > worst) { worst = diff; worstAt = mine[i][0]; }
-            // The surviving-point count is the stronger signal. It is an integer, so it
-            // carries no rounding at all: if the two implementations ever make a
-            // different decision this moves, whatever the lengths do.
-            if (mine[i][2] !== written[i][2] && keptDiff === null) {
-              keptDiff = { tol: mine[i][0], mine: mine[i][2], written: written[i][2] };
-            }
-          }
-          return { ok: true, worst, worstAt, keptDiff, id, rungs: mine.length };
-        })()"""
-    )
-    if not agree.get("ok"):
-        failures.append(
-            f"lines/{viewport}: browser and Python ladders disagree "
-            f"({agree.get('why')}) for {agree.get('id')}"
-        )
-    elif agree.get("keptDiff"):
-        d = agree["keptDiff"]
-        failures.append(
-            f"lines/{viewport}: geo.mjs and gpsnoise.py keep different points at "
-            f"tolerance {d['tol']} m on {agree['id']} "
-            f"({d['mine']} vs {d['written']})"
-        )
-    elif agree["worst"] > LADDER_AGREEMENT_M:
-        failures.append(
-            f"lines/{viewport}: geo.mjs and gpsnoise.py disagree by "
-            f"{agree['worst']:.4f} m at tolerance {agree['worstAt']} m on {agree['id']}"
-        )
-    else:
-        print(
-            f"  (ladders agree to {agree['worst'] * 1000:.2f} mm across "
-            f"{agree['rungs']} rungs on {agree['id']}, same points kept at every rung)"
-        )
+        failures.append(f"lines/{viewport}: the slider's own value reads {moved['out']!r}")
 
     # The snapped line's toggle must really change what is on screen.
     #
     # `queryRenderedFeatures` answers from the last frame, so it has to be asked after a
-    # render and not after the click. Asking too early reported 7 features still drawn
-    # on a layer that was already hidden -- a false failure, which is the same defect as
-    # a false pass.
+    # render and not after the click. Asking too early reported features still drawn on a
+    # layer that was already hidden -- a false failure, which is the same defect as a
+    # false pass.
     toggled = page.evaluate(
         """(() => {
           const button = document.getElementById('toggle-matched');
@@ -1010,43 +1075,55 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
             f"lines/{viewport}: the snapped line is visible again but renders nothing"
         )
 
-    # Clicking a trace must open the panel. The pixel is found by asking what the
-    # reader's cursor would actually hit, not by assuming the line crosses the centre.
+    # Clicking a trace must select it. The pixel is found by asking what the reader's
+    # cursor would actually hit, not by assuming a line crosses the centre.
+    page.evaluate("window.lines.clear()")
+    settle(page)
     clicked = page.evaluate(
         """(() => {
           const map = window.base.map;
           const canvas = document.querySelector('.maplibregl-canvas');
           const box = canvas.getBoundingClientRect();
-          const hits = map.queryRenderedFeatures({ layers: ['recorded'] });
-          if (!hits.length) return { found: false };
-          // Walk the rendered geometry until a projected point really queries back to
-          // the layer: a coordinate can project outside the canvas, or under a card.
-          const coords = hits[0].geometry.coordinates.flat
-            ? hits[0].geometry.coordinates
-            : [];
-          const flat = Array.isArray(coords[0][0]) ? coords.flat() : coords;
-          for (let i = Math.floor(flat.length / 2); i < flat.length; i += 1) {
-            const p = map.project(flat[i]);
-            if (p.x < 4 || p.y < 4 || p.x > box.width - 4 || p.y > box.height - 4) continue;
-            if (!map.queryRenderedFeatures([p.x, p.y], { layers: ['recorded'] }).length) continue;
-            if (document.elementFromPoint(box.left + p.x, box.top + p.y) !== canvas) continue;
-            for (const type of ['mousedown', 'mouseup', 'click']) {
-              canvas.dispatchEvent(new MouseEvent(type, {
-                bubbles: true, clientX: box.left + p.x, clientY: box.top + p.y,
-              }));
+          const hits = map.queryRenderedFeatures({ layers: ['all'] });
+          if (!hits.length) return { found: false, tried: 0 };
+          // Several features, not just the first. A real history draws hundreds of
+          // overlapping traces, and any one of them can be almost entirely off-canvas or
+          // under an overlay card -- which made this report "no reachable pixel" on a
+          // page where most of the map was clickable.
+          let tried = 0;
+          for (const hit of hits.slice(0, 40)) {
+            const coords = hit.geometry.coordinates;
+            const flat = Array.isArray(coords[0][0]) ? coords.flat() : coords;
+            // Walk outwards from the middle: the ends of a clipped line are the parts most
+            // likely to be off-screen.
+            for (let i = 0; i < flat.length; i += 1) {
+              const j = Math.floor(flat.length / 2) + (i % 2 ? -1 : 1) * Math.ceil(i / 2);
+              if (j < 0 || j >= flat.length) continue;
+              tried += 1;
+              const p = map.project(flat[j]);
+              if (p.x < 4 || p.y < 4 || p.x > box.width - 4 || p.y > box.height - 4) continue;
+              if (!map.queryRenderedFeatures([p.x, p.y], { layers: ['all-hit'] }).length) continue;
+              if (document.elementFromPoint(box.left + p.x, box.top + p.y) !== canvas) continue;
+              for (const type of ['mousedown', 'mouseup', 'click']) {
+                canvas.dispatchEvent(new MouseEvent(type, {
+                  bubbles: true, clientX: box.left + p.x, clientY: box.top + p.y,
+                }));
+              }
+              return { found: true, at: [Math.round(p.x), Math.round(p.y)], tried };
             }
-            return { found: true, at: [Math.round(p.x), Math.round(p.y)] };
           }
-          return { found: false };
+          return { found: false, tried, features: hits.length };
         })()"""
     )
     if not clicked["found"]:
         failures.append(
-            f"lines/{viewport}: found no pixel on a recorded trace that the cursor "
-            f"could reach, so the click path is untested"
+            f"lines/{viewport}: found no pixel on a trace that the cursor could reach, "
+            f"so the click path is untested "
+            f"({clicked.get('tried')} candidate point(s) across "
+            f"{clicked.get('features')} rendered feature(s))"
         )
     else:
-        time.sleep(0.6)
+        time.sleep(1.4)
         opened = page.evaluate(
             """(() => {
               const detail = document.getElementById('detail');
@@ -1056,6 +1133,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
                 title: open ? detail.querySelector('h2').textContent : '',
                 rows: open ? detail.querySelectorAll('.group-table tbody tr').length : 0,
                 text: open ? detail.textContent : '',
+                selected: window.lines.selectedId(),
               };
             })()"""
         )
@@ -1063,6 +1141,8 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
             failures.append(
                 f"lines/{viewport}: clicking a trace at {clicked['at']} opened no panel"
             )
+        elif not opened["selected"]:
+            failures.append(f"lines/{viewport}: the panel opened but nothing is selected")
         elif opened["rows"] < 4:
             failures.append(
                 f"lines/{viewport}: the panel has {opened['rows']} rows, want at least 4"
@@ -1070,12 +1150,13 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
         elif "km" not in opened["text"]:
             failures.append(f"lines/{viewport}: the panel shows no distance")
         else:
-            print(f"  (panel opened on {opened['title']!r}, {opened['rows']} rows)")
+            print(f"  (clicked a trace -> {opened['title']!r}, {opened['rows']} rows)")
 
-    # A basemap switch re-runs `draw` against an empty style. Both traces have to come
-    # back, and the reader's slider has to still be where they left it: the tolerance
-    # lives outside `draw` precisely so a switch does not reset it.
-    page.evaluate("document.querySelector('[data-basemap=\"simple\"]').click()")
+    # A basemap switch re-runs `draw` against an empty style. Everything has to come back,
+    # and the reader's slider and selection have to survive: both live outside `draw`
+    # precisely so a switch does not reset them.
+    page.evaluate("window.lines.setTolerance(%s)" % LINES_PROBE_TOLERANCE)
+    page.evaluate("""document.querySelector('[data-basemap="simple"]').click()""")
     wait_for_map(page, "simple")
     settle(page)
     after_switch = page.evaluate(
@@ -1083,10 +1164,10 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
           const map = window.base.map;
           return {
             present: %s.filter((id) => Boolean(map.getLayer(id))),
-            rendered: map.getLayer('recorded')
-              ? map.queryRenderedFeatures({ layers: ['recorded'] }).length : 0,
+            all: map.getLayer('all')
+              ? map.queryRenderedFeatures({ layers: ['all'] }).length : 0,
             tolerance: window.lines.tolerance,
-            slider: Number(document.getElementById('tolerance').value),
+            selected: window.lines.selectedId(),
           };
         })()"""
         % (list(LINES_LAYERS),)
@@ -1097,26 +1178,22 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
             f"lines/{viewport}: draw did not re-run after a basemap switch; "
             f"missing {sorted(missing)}"
         )
-    if after_switch["rendered"] < 1:
+    if after_switch["all"] < 1:
         failures.append(
-            f"lines/{viewport}: the recorded trace rendered nothing after a basemap switch"
+            f"lines/{viewport}: the overview rendered nothing after a basemap switch"
         )
     if after_switch["tolerance"] != LINES_PROBE_TOLERANCE:
         failures.append(
             f"lines/{viewport}: the basemap switch reset the slider to "
             f"{after_switch['tolerance']}, want {LINES_PROBE_TOLERANCE}"
         )
+    if not after_switch["selected"]:
+        failures.append(f"lines/{viewport}: the basemap switch dropped the selection")
 
-    # Back to full resolution, which is how the page opens, and then count what is
-    # actually painted. This is the last check because it is the only one that can tell
-    # a line that is drawn from a line that is merely in the style.
-    page.evaluate(
-        """(() => {
-          const slider = document.getElementById('tolerance');
-          slider.value = '0';
-          slider.dispatchEvent(new Event('input', { bubbles: true }));
-        })()"""
-    )
+    # Back to full resolution, then count what is actually painted. This is last because
+    # it is the only check that can tell a line that is drawn from a line that is merely
+    # in the style.
+    page.evaluate("window.lines.setTolerance(0)")
     settle(page)
     shot = out_dir / f"lines-{viewport}.png"
     counts = count_pixels(
@@ -1130,14 +1207,29 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
                 f"screen -- most likely painted over by a wider layer above it."
             )
 
+    # The basemap credit, on this page too.
+    #
+    # It used to be checked only on `00-base`, and day 2 shipped three commits with its
+    # `#map-attrib` bare inside `.window-body` rather than in `.window-status` -- the
+    # arrangement `docs/basemap.md` records as having hidden the credit behind the detail
+    # panel once before. A licence term that only one page is tested for is a licence term
+    # that will go missing on the next page.
+    failures += check_attribution(page, f"lines-{viewport}/panel-shut")
+    if clicked.get("found"):
+        page.evaluate("window.lines.select(window.lines.activities()[0])")
+        time.sleep(0.8)
+        failures += check_attribution(page, f"lines-{viewport}/panel-open")
+
     failures += [f"lines/{viewport}: {e}" for e in console_errors(page)]
     print(
         f"  lines-{viewport}.png  {shot.stat().st_size // 1024} KB  "
-        f"activities={len(info['activities'])} rendered={info['rendered']} "
-        f"total={moved['before'] / 1000:.1f}km->{moved['after'] / 1000:.1f}km "
+        f"from {info['dataDir']} floor {info['floor']}m  "
+        f"activities={len(info['activities'])} overview={info['all']} "
+        f"agg={agg.get('recorded', 0) / 1000:.0f}km "
         f"px recorded={counts['recorded']} matched={counts['matched']}"
     )
     return failures
+
 
 
 def settle(page, timeout: float = 30.0) -> None:

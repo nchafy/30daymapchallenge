@@ -41,11 +41,16 @@
       </div>
 
       <div class="card">
+        <h2>Every run</h2>
+        <p class="readout" id="aggregate"></p>
+      </div>
+
+      <div class="card">
         <h2>Measuring stick</h2>
         <div class="trackbar">
           <label for="tolerance">Detail</label>
           <input type="range" id="tolerance" min="0" max="100" step="0.5" value="0"
-                 aria-describedby="readout">
+                 aria-describedby="readout" disabled>
           <output for="tolerance" id="tolerance-out">0 m</output>
         </div>
         <p class="readout" id="readout"></p>
@@ -55,6 +60,7 @@
         </div>
         <div class="tilt-row">
           <button type="button" id="toggle-matched" aria-pressed="true">Snapped line</button>
+          <button type="button" id="clear-selection" hidden>Deselect</button>
         </div>
       </div>
 
@@ -76,8 +82,6 @@
       </button>
     </div>
 
-    <p id="map-attrib" class="map-attrib"></p>
-
     <aside class="detail" id="detail" aria-labelledby="detail-title" hidden>
       <div class="detail-head">
         <h2 id="detail-title"></h2>
@@ -86,6 +90,19 @@
       <div class="detail-body"></div>
       <p class="detail-foot"></p>
     </aside>
+  </div>
+
+  <!-- The window's status bar, and the only place the basemap credit lives. Attribution is
+       a licence term, and outside the map nothing can cover it. MUST NOT be removed.
+
+       A sibling of `.window-body`, not a child of it. This page had the credit as a bare
+       `<p>` inside `.window-body` for three commits, and then briefly as a `.window-status`
+       still inside it -- both of which `.overlays { inset: 0 }` covers, which is exactly
+       the arrangement `docs/basemap.md` records as having hidden the credit behind the
+       detail panel once before. `check_attribution` runs on this page now, so it cannot
+       go back. -->
+  <div class="window-status">
+    <p id="map-attrib" class="map-attrib"></p>
   </div>
 </div>
 

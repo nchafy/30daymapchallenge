@@ -8,6 +8,8 @@ screenshots/
 # where someone lives and when they are not home, so it does not go in a public repo.
 # `days/02-lines/fixture/` and the `data/` built from it are synthetic and are committed,
 # so the page still renders for someone without the export.
+strava/
 strava-export/
 strava_export*/
+export_*/
 days/02-lines/private/

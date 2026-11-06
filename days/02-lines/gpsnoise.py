@@ -638,11 +638,25 @@ def match_chunk(
     return decode_polyline(shape, precision=6)
 
 
+#: Points per matching request.
+#:
+#: Measured against the public instance by `probe_limits.py`: 16,000 is accepted and
+#: 20,000 returns HTTP 413, so the ceiling is somewhere in between. 15,000 leaves margin
+#: for a differently configured instance.
+#:
+#: The size matters for politeness, not for speed or accuracy. A 16,000-point request
+#: takes 1.3 s against the public instance -- barely longer than a 1,500-point one -- and
+#: returns a matched length within 0.01 km of it. But chunking a 1.6M-point history at
+#: 1,500 is over 1,200 requests where 15,000 is about 410. Same answer, a third of the
+#: load on a volunteer-run service.
+MATCH_CHUNK = 15000
+
+
 def match_trace(
     lat: np.ndarray,
     lon: np.ndarray,
     costing: str = "pedestrian",
-    chunk: int = 1500,
+    chunk: int = MATCH_CHUNK,
     pause_s: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray, str]:
     """Snap a whole trace, in chunks, with a pause between calls.
