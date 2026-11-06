@@ -7,6 +7,7 @@
  */
 
 import { DAYS, BASE_ENTRY } from './days.mjs';
+import { openWindow, closeWindow, renderTaskbar } from './taskbar.mjs';
 
 /* ---------------------------------------------------------------------------
    The taskbar clock.
@@ -298,9 +299,17 @@ export function mountChrome(options = {}) {
   const detail = document.getElementById('detail');
   const panel = detail ? new Panel(detail) : null;
 
-  // The title bar's close box. There is one window and nowhere to close it to, so it does
-  // the one honest thing available: dismisses the panel if it is open, and otherwise goes
-  // back to the index.
+  // Opening a day registers it, whatever route the reader took to get here: a desktop
+  // icon, the Start menu, a bookmark, the back button. The taskbar is then rebuilt from
+  // that list rather than kept in step by whoever did the navigating.
+  if (options.here) {
+    openWindow(options.here);
+  }
+  renderTaskbar(document.querySelector('.task-items'), options.here);
+
+  // The title bar's close box. It closes the window: forgets this day and returns to the
+  // desktop. A panel open over the map is dismissed first, because that is the nearer of
+  // the two things a reader means by "close" when something is covering the map.
   const close = document.getElementById('window-close');
   if (close) {
     close.addEventListener('click', () => {
@@ -308,6 +317,7 @@ export function mountChrome(options = {}) {
         panel.close();
         return;
       }
+      if (options.here) closeWindow(options.here);
       window.location.href = '/';
     });
   }

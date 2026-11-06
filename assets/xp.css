@@ -585,25 +585,81 @@ input[type="text"], input[type="search"], select {
   box-shadow: none;
 }
 
-/* A window button in the bar: the current day. Pressed, because its window is focused. */
-.task-items { display: flex; align-items: center; gap: .3rem; flex: 1 1 auto; min-width: 0; }
-.task-button {
+/* The window buttons. One per day the reader has opened, built by `taskbar.mjs` from the
+   list in `localStorage`, so the bar survives the navigation between two days.
+
+   Two states, as Luna drew them: an unfocused window is raised and lighter, the focused
+   one is pressed and darker. The pressed one is the page you are on. */
+.task-items {
   display: flex;
   align-items: center;
-  gap: .35rem;
-  max-width: 18rem;
-  min-height: 0;
-  margin: 3px 0;
-  padding: 0 .6rem;
+  gap: .3rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* More open windows than fit shrink rather than push the tray off the bar. XP added a
+     scroll arrow; shrinking to the ellipsis is the same bargain with less machinery. */
+  overflow: hidden;
+}
+.task-button {
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  max-width: 16rem;
+  min-width: 0;
+  /* 2px rather than 3 leaves the button 26px tall inside a 30px bar, which is what lets
+     the close box below be a 24px target without overflowing it. */
+  margin: 2px 0;
   font: inherit;
-  color: #fff;
-  background: linear-gradient(to bottom, #3c81ee 0%, #1c50b5 100%);
+  background: linear-gradient(to bottom, #4a90f0 0%, #2a63c8 48%, #2258bd 100%);
   border: 1px solid #1941a5;
+  border-top-color: #7fb0f5;
   border-radius: 2px;
-  box-shadow: inset 1px 1px 2px rgb(0 0 0 / 30%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%);
+}
+.task-button[data-current] {
+  background: linear-gradient(to bottom, #1c50b5 0%, #2a68cf 100%);
+  border-color: #16399b;
+  box-shadow: inset 1px 1px 3px rgb(0 0 0 / 45%);
+}
+
+.task-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 .2rem 0 .55rem;
+  color: #fff;
+  text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.task-button[data-current] .task-label { font-weight: 700; }
+.task-label:hover { text-decoration: underline; }
+
+/* The close box on a window button. 24px square, which is the smallest SC 2.5.8 accepts,
+   and the reason the button is 26px tall rather than Luna's 24. */
+.task-close {
+  flex: 0 0 24px;
+  width: 24px;
+  min-height: 0;
+  padding: 0;
+  font: 700 10px/1 Tahoma, Verdana, sans-serif;
+  color: #dfe8f5;
+  background: transparent;
+  border: 0;
+  border-radius: 0 1px 1px 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+.task-close:hover {
+  color: #fff;
+  /* The era's close red, so the destructive one of the two targets on this button is the
+     one that looks it. */
+  background: linear-gradient(to bottom, #e8795f 0%, #c13a1b 100%);
+}
+.task-close:active {
+  background: linear-gradient(to bottom, #a82e12 0%, #d14a28 100%);
+  box-shadow: inset 1px 1px 2px rgb(0 0 0 / 35%);
 }
 
 /* The system tray: a sunken well with the clock in it. */

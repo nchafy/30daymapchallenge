@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import base64
 import io
+import re
 import socket
 import subprocess
 import sys
@@ -36,9 +37,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: narrower request silently crops. Still under the 52rem breakpoint, so it exercises the
 #: bottom-sheet path for the detail panel.
 VIEWPORTS = {"narrow": (500, 900), "desktop": (1280, 820)}
-
-#: Pages with no map. Checked for console errors and shape, not for a canvas.
-STATIC_PAGES = {"index": "/"}
 
 #: The map page, visited once per basemap.
 MAP_PAGE = "/days/00-base/"
@@ -480,26 +478,242 @@ MIN_LINE_PIXELS = 200
 INK_SLACK = 60
 
 
-def count_line_pixels(page, target: Path) -> dict:
-    """Screenshot the page and count pixels of each line colour on the map itself.
+#: Colours the desktop wallpaper must actually paint, and how many pixels of each.
+#:
+#: The wallpaper is pure CSS -- a sky gradient and an elliptical hill -- so there is no
+#: request that can 404 and nothing in the console if it stops drawing. A pixel count is
+#: the only thing that notices.
+DESKTOP_INKS = {"sky": (0x3F, 0x93, 0xDD), "hill": (0x76, 0xB5, 0x2C)}
+MIN_DESKTOP_PIXELS = 2000
+DESKTOP_INK_SLACK = 34
 
-    Everything the reader could mistake for the map is excluded first: the overlay cards
-    carry a swatch of both inks in the key, so counting the whole frame would pass even
-    with nothing drawn. The rectangles come from the live layout rather than from
-    constants, so a card that moves cannot quietly start being counted.
+
+def days_with_pages() -> list[str]:
+    """The folders `assets/days.mjs` claims have a page, base map included.
+
+    Read out of the source rather than hardcoded, so this file does not have to be edited
+    every time a day is built. The point of reading it is to compare what the data file
+    says against what the desktop renders and what the server will actually serve.
+    """
+    source = (REPO_ROOT / "assets" / "days.mjs").read_text()
+    dirs = re.findall(r"dir:\s*'([^']+)'", source)
+    # Order does not matter here; `dict.fromkeys` just drops any accidental duplicate.
+    return list(dict.fromkeys(dirs))
+
+
+def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
+    """The desktop: an icon per day, and the taskbar that tracks what is open.
+
+    The taskbar is the part worth checking properly. Each day is a separate page, so
+    "which windows are open" has to survive a navigation, and the only way to know it does
+    is to navigate and look.
+    """
+    failures: list[str] = []
+    expected_dirs = days_with_pages()
+
+    page.navigate(base_url + "/")
+    # Start from a known state rather than from whatever a previous run left behind.
+    page.evaluate("window.localStorage.removeItem('30dmc:open')")
+    page.navigate(base_url + "/")
+
+    shape = page.evaluate(
+        """(() => {
+          const icons = [...document.querySelectorAll('#icons li')];
+          const links = [...document.querySelectorAll('#icons .icon-link[href]')];
+          return {
+            icons: icons.length,
+            links: links.map((a) => a.getAttribute('href')),
+            labels: links.map((a) => a.textContent.trim()),
+            badges: [...document.querySelectorAll('#icons .icon-art[data-n]')].length,
+            tasks: document.querySelectorAll('.task-items .task-button').length,
+          };
+        })()"""
+    )
+    if shape["icons"] != 31:
+        failures.append(f"desktop/{viewport}: {shape['icons']} icons, want 31")
+    if shape["badges"] != 30:
+        failures.append(
+            f"desktop/{viewport}: {shape['badges']} numbered icons, want 30 "
+            f"(the base map is the one without a number)"
+        )
+
+    got_dirs = [href.strip("/").split("/")[-1] for href in shape["links"]]
+    if sorted(got_dirs) != sorted(expected_dirs):
+        failures.append(
+            f"desktop/{viewport}: the desktop links {sorted(got_dirs)} but days.mjs "
+            f"says {sorted(expected_dirs)}"
+        )
+    if shape["tasks"] != 0:
+        failures.append(
+            f"desktop/{viewport}: {shape['tasks']} taskbar buttons with nothing opened"
+        )
+
+    # Every icon that is a link must lead somewhere the server will serve. This is the
+    # dead-target case `days.mjs` warns about: a `dir` set to a folder that was never
+    # created renders as a perfectly ordinary icon.
+    for href in shape["links"]:
+        try:
+            with urllib.request.urlopen(base_url + href, timeout=10) as response:
+                if response.status != 200:
+                    failures.append(
+                        f"desktop/{viewport}: {href} answered {response.status}"
+                    )
+        except OSError as error:
+            failures.append(f"desktop/{viewport}: {href} is a dead icon ({error})")
+
+    # Opening a day from its icon must put a button in the bar, and the button must say it
+    # is the one in front.
+    first = shape["links"][0]
+    page.evaluate(
+        f"document.querySelector('#icons .icon-link[href=\"{first}\"]').click()"
+    )
+    page.wait_for("Page.loadEventFired", timeout=30)
+    opened_one = page.evaluate(
+        """(() => {
+          const buttons = [...document.querySelectorAll('.task-items .task-button')];
+          return {
+            count: buttons.length,
+            current: buttons.filter((b) => b.dataset.current).length,
+            labels: buttons.map((b) => b.querySelector('.task-label').textContent.trim()),
+          };
+        })()"""
+    )
+    if opened_one["count"] != 1 or opened_one["current"] != 1:
+        failures.append(
+            f"desktop/{viewport}: opening {first} gave {opened_one['count']} button(s), "
+            f"{opened_one['current']} marked current; want 1 and 1"
+        )
+
+    # A second day, reached directly rather than through an icon, must also register --
+    # the list is the page's own doing, not the desktop's.
+    second = next((h for h in shape["links"] if h != first), None)
+    if second:
+        page.navigate(base_url + second)
+        opened_two = page.evaluate(
+            """(() => {
+              const buttons = [...document.querySelectorAll('.task-items .task-button')];
+              return {
+                count: buttons.length,
+                current: buttons.filter((b) => b.dataset.current).length,
+                currentLabel: (buttons.find((b) => b.dataset.current) || {}).textContent || '',
+              };
+            })()"""
+        )
+        if opened_two["count"] != 2 or opened_two["current"] != 1:
+            failures.append(
+                f"desktop/{viewport}: with two days open there are "
+                f"{opened_two['count']} button(s) and {opened_two['current']} current; "
+                f"want 2 and 1"
+            )
+
+        # Back on the desktop both windows stay open, and neither is in front.
+        page.navigate(base_url + "/")
+        back = page.evaluate(
+            """(() => {
+              const buttons = [...document.querySelectorAll('.task-items .task-button')];
+              return {
+                count: buttons.length,
+                current: buttons.filter((b) => b.dataset.current).length,
+              };
+            })()"""
+        )
+        if back["count"] != 2:
+            failures.append(
+                f"desktop/{viewport}: {back['count']} button(s) after returning to the "
+                f"desktop, want 2 -- the open list did not survive the navigation"
+            )
+        if back["current"] != 0:
+            failures.append(
+                f"desktop/{viewport}: the desktop marks {back['current']} window as "
+                f"current; it is not one of them"
+            )
+
+        # And the close box on a button really closes that window.
+        closed = page.evaluate(
+            """(() => {
+              const first = document.querySelector('.task-items .task-button');
+              const label = first.querySelector('.task-label').textContent.trim();
+              first.querySelector('.task-close').click();
+              const left = [...document.querySelectorAll('.task-items .task-button')];
+              return {
+                closed: label,
+                count: left.length,
+                labels: left.map((b) => b.querySelector('.task-label').textContent.trim()),
+                stored: window.localStorage.getItem('30dmc:open'),
+              };
+            })()"""
+        )
+        if closed["count"] != 1:
+            failures.append(
+                f"desktop/{viewport}: closing one of two windows left "
+                f"{closed['count']}, want 1"
+            )
+        elif closed["closed"] in closed["labels"]:
+            failures.append(
+                f"desktop/{viewport}: closed {closed['closed']!r} and it is still in the bar"
+            )
+        elif closed["closed"] in (closed["stored"] or ""):
+            failures.append(
+                f"desktop/{viewport}: closed {closed['closed']!r} but it is still in "
+                f"localStorage, so it comes back on reload"
+            )
+        else:
+            print(f"  (opened two, closed {closed['closed']!r}, {closed['count']} left)")
+
+    # The wallpaper is CSS, so nothing fails loudly if it stops drawing.
+    shot = out_dir / f"desktop-{viewport}.png"
+    counts = count_pixels(page, shot, DESKTOP_INKS, DESKTOP_INK_SLACK, blockers=False)
+    for name in DESKTOP_INKS:
+        if counts[name] < MIN_DESKTOP_PIXELS:
+            failures.append(
+                f"desktop/{viewport}: the {name} covers {counts[name]} pixels, want at "
+                f"least {MIN_DESKTOP_PIXELS}. The wallpaper is not drawing."
+            )
+
+    failures += [f"desktop/{viewport}: {e}" for e in console_errors(page)]
+    print(
+        f"  desktop-{viewport}.png  {shot.stat().st_size // 1024} KB  "
+        f"icons={shape['icons']} links={len(shape['links'])} "
+        f"px sky={counts['sky']} hill={counts['hill']}"
+    )
+    return failures
+
+
+def count_pixels(
+    page, target: Path, inks: dict, slack: int, blockers: bool = True
+) -> dict:
+    """Screenshot the page and count how many pixels of each named colour are on screen.
+
+    This answers the one question `queryRenderedFeatures` and a `visibility` comparison
+    cannot: is the thing actually painted where a reader would see it. A feature covered
+    by a wider layer above it is still reported as rendered, and a CSS gradient that stops
+    drawing produces no request to fail and nothing in the console.
+
+    With `blockers`, the measured region is the map element minus every overlay rectangle
+    on top of it -- the control cards carry a swatch of both line inks in the key, so
+    counting the whole frame would pass with nothing drawn on the map at all. The
+    rectangles are read from the live layout rather than written here, so a card that
+    moves cannot quietly start being counted.
+
+    Without it, the whole viewport counts, which is what the wallpaper needs.
     """
     from PIL import Image
 
     rects = page.evaluate(
         """(() => {
-          const map = document.getElementById('map').getBoundingClientRect();
+          const el = document.getElementById('map');
+          const map = el ? el.getBoundingClientRect() : null;
           const blockers = [...document.querySelectorAll('.overlays > *, .map-zoom, .detail, .map-attrib')]
-            .filter((el) => !el.hidden && el.getBoundingClientRect().width > 0)
-            .map((el) => {
-              const r = el.getBoundingClientRect();
+            .filter((node) => !node.hidden && node.getBoundingClientRect().width > 0)
+            .map((node) => {
+              const r = node.getBoundingClientRect();
               return [r.left, r.top, r.right, r.bottom];
             });
-          return { map: [map.left, map.top, map.right, map.bottom], blockers };
+          return {
+            map: map ? [map.left, map.top, map.right, map.bottom] : null,
+            blockers,
+            view: [window.innerWidth, window.innerHeight],
+          };
         })()"""
     )
     data = page.call("Page.captureScreenshot", format="png")
@@ -507,29 +721,32 @@ def count_line_pixels(page, target: Path) -> dict:
     target.write_bytes(blob)
 
     image = Image.open(io.BytesIO(blob)).convert("RGB")
-    left, top, right, bottom = (int(v) for v in rects["map"])
-    # The screenshot can be a different pixel size than the CSS layout if the device
-    # scale factor is not 1. It is set to 1 in main(), but scale rather than assume.
-    sx = image.width / page.evaluate("window.innerWidth")
-    sy = image.height / page.evaluate("window.innerHeight")
+    # The screenshot can be a different pixel size than the CSS layout if the device scale
+    # factor is not 1. It is set to 1 in main(), but scale rather than assume.
+    sx = image.width / rects["view"][0]
+    sy = image.height / rects["view"][1]
 
     def scaled(box):
         return [int(box[0] * sx), int(box[1] * sy), int(box[2] * sx), int(box[3] * sy)]
 
-    left, top, right, bottom = scaled([left, top, right, bottom])
-    blockers = [scaled(b) for b in rects["blockers"]]
-    pixels = image.load()
+    if blockers and rects["map"]:
+        left, top, right, bottom = scaled(rects["map"])
+        skip = [scaled(b) for b in rects["blockers"]]
+    else:
+        left, top, right, bottom = 0, 0, image.width, image.height
+        skip = []
 
-    counts = {name: 0 for name in LINE_INKS}
+    pixels = image.load()
+    counts = {name: 0 for name in inks}
     considered = 0
     for y in range(max(top, 0), min(bottom, image.height)):
         for x in range(max(left, 0), min(right, image.width)):
-            if any(bx0 <= x <= bx1 and by0 <= y <= by1 for bx0, by0, bx1, by1 in blockers):
+            if any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in skip):
                 continue
             considered += 1
             r, g, b = pixels[x, y]
-            for name, (ir, ig, ib) in LINE_INKS.items():
-                if abs(r - ir) <= INK_SLACK and abs(g - ig) <= INK_SLACK and abs(b - ib) <= INK_SLACK:
+            for name, (ir, ig, ib) in inks.items():
+                if abs(r - ir) <= slack and abs(g - ig) <= slack and abs(b - ib) <= slack:
                     counts[name] += 1
                     break
     counts["_considered"] = considered
@@ -837,7 +1054,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     )
     settle(page)
     shot = out_dir / f"lines-{viewport}.png"
-    counts = count_line_pixels(page, shot)
+    counts = count_pixels(page, shot, LINE_INKS, INK_SLACK)
     for name in LINE_INKS:
         if counts[name] < MIN_LINE_PIXELS:
             failures.append(
@@ -987,17 +1204,8 @@ def main(argv: list[str] | None = None) -> int:
                     mobile=False,
                 )
 
-                for name, path in STATIC_PAGES.items():
-                    page.navigate(base + path)
-                    rows = page.evaluate(
-                        "document.querySelectorAll('#day-list li').length"
-                    )
-                    if rows != 31:
-                        failures.append(f"{name}/{viewport}: day list has {rows} rows, want 31")
-                    errors = console_errors(page)
-                    failures += [f"{name}/{viewport}: {e}" for e in errors]
-                    size = shoot(page, out_dir / f"{name}-{viewport}.png")
-                    print(f"  {name}-{viewport}.png  {size // 1024} KB  rows={rows}")
+                # The desktop, its icons, and the taskbar that tracks what is open.
+                failures += check_desktop(page, viewport, out_dir, base)
 
                 # The remembered basemap is cleared first, so every run starts from the
                 # documented default rather than from whatever the last run chose. The

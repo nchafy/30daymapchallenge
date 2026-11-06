@@ -1,72 +1,196 @@
-/* The index page only. Every day's page is a full-bleed map; this one is a document inside
-   the same window frame, so it is the one place that scrolls. */
+/* The desktop: the wallpaper, and an icon per day.
+ *
+ * Every day's page is a maximised window over this. This file is the only one that draws
+ * the thing the windows sit on.
+ */
 
-.index-body { overflow-y: auto; background: var(--face); }
+/* ---------------------------------------------------------------------------
+   The wallpaper.
 
-.sheet {
-  max-width: 44rem;
-  margin: 1rem auto;
-  padding: 1rem 1.2rem 1.2rem;
-  background: var(--bg);
-  border: 1px solid var(--rule);
-  border-top-color: var(--raised);
-  border-left-color: var(--raised);
-  box-shadow: inset -1px -1px 0 var(--raised), 1px 1px 0 var(--sunk);
+   Not Bliss. Bliss is a photograph owned by Microsoft, taken by Charles O'Rear in Sonoma
+   County in 1996; it is not licensed for redistribution and it is not in this repo. This
+   is a gradient standing in the same place: a blue sky falling to a pale horizon, a few
+   soft clouds, and a green hill with a curved crest. It reads as the right decade from
+   across a room and it is four CSS declarations, which is the trade being made.
+
+   The hill is a wide, flat ellipse rather than a rectangle with a radius. A radius gives
+   two straight sides and a corner each end; an ellipse wider than the viewport gives one
+   continuous crest, which is what the photograph has.
+   --------------------------------------------------------------------------- */
+
+body.desktop {
+  /* The sky. Luna's desktop blue at the top, washing out towards the horizon. */
+  background:
+    radial-gradient(ellipse 36rem 9rem at 72% 26%, rgb(255 255 255 / 72%), transparent 70%),
+    radial-gradient(ellipse 22rem 6rem at 24% 17%, rgb(255 255 255 / 55%), transparent 72%),
+    radial-gradient(ellipse 16rem 4rem at 52% 34%, rgb(255 255 255 / 45%), transparent 75%),
+    linear-gradient(to bottom, #1f6fc4 0%, #3f93dd 34%, #79bbe8 52%, #b8dcf0 61%, #cfe6f2 64%);
+  background-repeat: no-repeat;
 }
 
-.lede { margin: 0 0 1rem; }
-.sheet .group { margin-top: 1rem; }
-.sheet .group:first-of-type { margin-top: 0; }
+/* The hill. A pseudo-element so the icons are not inside it and cannot be clipped by it. */
+body.desktop::before {
+  content: "";
+  position: fixed;
+  /* Wider than the viewport on both sides, so only the middle of the crest is ever seen. */
+  left: -30%;
+  right: -30%;
+  top: 56%;
+  bottom: 0;
+  border-radius: 50% 50% 0 0 / 28% 28% 0 0;
+  background: linear-gradient(to bottom, #93c93f 0%, #76b52c 22%, #5a9c22 58%, #3f7d1a 100%);
+  /* Sits under everything. The taskbar is z-index 10 and the icons are 1. */
+  z-index: 0;
+  pointer-events: none;
+}
 
-/* Two columns once there is room for them: thirty rows in one column is a scroll, and the
-   list is the page's whole point. */
-.day-list {
+/* ---------------------------------------------------------------------------
+   The icon grid.
+   --------------------------------------------------------------------------- */
+
+/* Filling columns top to bottom, then starting a new column to the right, which is where
+   XP put a new icon. The row-major default would run 01 02 03 across the top of the
+   screen, which is a web page's habit and not a desktop's. */
+.icon-grid {
+  position: fixed;
+  inset: 0 0 var(--taskbar-h) 0;
+  z-index: 1;
   margin: 0;
-  padding: 0;
+  padding: .6rem .35rem;
   list-style: none;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0 1.4rem;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(auto-fill, 5.6rem);
+  grid-auto-columns: 5.6rem;
+  justify-content: start;
+  align-content: start;
+  gap: 0 .2rem;
+  /* A viewport too short for 31 icons gains columns, and the columns scroll sideways. The
+     vertical axis is fixed because the grid's rows are what define the columns. */
+  overflow-x: auto;
+  overflow-y: hidden;
 }
-/* Two columns that read downwards, not across. The default row-major flow put 02, 04, 06
-   down the left-hand side, which is not how anyone reads a numbered list of thirty things.
-   16 rows splits 31 items into a column of 16 and a column of 15. */
-@media (min-width: 34rem) {
-  .day-list {
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: repeat(16, auto);
-    grid-auto-flow: column;
-  }
-}
-/* The same rows the Start menu renders, so `.start-menu li a` and these have to agree. The
-   shared rules are in xp.css; these are the ones that differ on a white page. */
-.day-list li a,
-.day-list li .todo {
+
+.icon { min-width: 0; }
+
+.icon-link {
   display: flex;
-  gap: .5rem;
-  align-items: baseline;
-  padding: .25rem .3rem;
-  min-height: 24px;
+  flex-direction: column;
+  align-items: center;
+  gap: .15rem;
+  padding: .25rem .1rem .3rem;
+  border-radius: 2px;
+  text-decoration: none;
+  color: #fff;
+  cursor: default;
+}
+.icon-link[href] { cursor: pointer; }
+
+.icon-art {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  /* A map sheet with a folded corner. Inline rather than a file: it is one icon used 31
+     times, and a separate request for well under a kilobyte costs more than it saves.
+
+     The map inside the sheet is drawn at full saturation and fills most of it. The first
+     version used pale tints over a white page, which is what a real icon does at 48px and
+     reads as a blank document at 32 -- and worse once the greyscale for an unbuilt day is
+     applied on top. At this size an icon has room for about three shapes. */
+  background-image: url('data:image/svg+xml,\
+%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E\
+%3Cpath d="M5.5 2.5h14.2l6.8 6.8v20.2H5.5z" fill="%23fff" stroke="%23536c7d" stroke-width="1.2"/%3E\
+%3Cpath d="M19.7 2.5l6.8 6.8h-6.8z" fill="%23b9d3ee" stroke="%23536c7d" stroke-width="1.2"/%3E\
+%3Crect x="7.6" y="11" width="16.2" height="16" fill="%238dc63f"/%3E\
+%3Cpath d="M7.6 20.4h16.2" stroke="%232f80c2" stroke-width="3.4"/%3E\
+%3Cpath d="M9.6 26c2.6-4.6 4.4 1.2 6.8-4.4s3.4 1.2 5.6-2.6" fill="none" stroke="%23e02d13" stroke-width="2"/%3E\
+%3Crect x="7.6" y="11" width="16.2" height="16" fill="none" stroke="%23536c7d" stroke-width="1"/%3E\
+%3C/svg%3E');
+  background-size: 32px 32px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(1px 1px 1px rgb(0 0 0 / 40%));
+}
+
+/* The base map gets the globe the window title bars use, because it is not one of the
+   thirty and an icon that says so saves a reader working it out from the label. */
+.icon-art.is-base {
+  background-image: url('data:image/svg+xml,\
+%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"%3E\
+%3Ccircle cx="16" cy="16" r="13" fill="%233a6ea5" stroke="%23dfe8f5" stroke-width="2"/%3E\
+%3Cpath d="M3 16h26M16 3c5 5 5 21 0 26M16 3c-5 5-5 21 0 26" fill="none" stroke="%23dfe8f5" stroke-width="1.8"/%3E\
+%3C/svg%3E');
+}
+
+/* The day number, tucked off the sheet's lower-left corner. Drawn from `data-n`, so the
+   markup carries the number once and the stylesheet decides where it goes.
+
+   Sized and placed against a 6x capture of the real icon rather than by eye. The first
+   version used a 9px font with 2px padding sitting at the sheet's edge, which covered
+   about a third of the map it was labelling. */
+.icon-art[data-n]::after {
+  content: attr(data-n);
+  position: absolute;
+  left: -4px;
+  bottom: -2px;
+  min-width: 13px;
+  padding: 0 1px;
+  font: 700 8px/1.35 Tahoma, Verdana, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: #fff;
+  background: var(--title-a);
+  border: 1px solid #dfe8f5;
   border-radius: 2px;
 }
-.day-list li a { color: var(--accent); text-decoration: none; }
-.day-list li a:hover,
-.day-list li a:focus-visible { background: var(--title-b); color: #fff; }
-.day-list li .n {
-  flex: 0 0 1.6rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-.day-list li a:hover .n,
-.day-list li a:focus-visible .n { color: #dfe8f5; }
-.day-list li .theme { flex: 1 1 auto; }
-.day-list li .todo { color: var(--muted); }
 
-.foot { margin: 1.2rem 0 0; font-size: 11px; color: var(--muted); }
-.foot code {
-  font-family: "Lucida Console", Monaco, monospace;
-  font-size: 10px;
+.icon-label {
+  /* XP's desktop label: white, shadowed, centred, and clipped to two lines. The shadow is
+     doing contrast work, not decoration — white text on the pale part of the sky measures
+     about 1.9:1 on its own, and the shadow is what makes it legible over both the sky and
+     the hill. */
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 85%), 0 0 3px rgb(0 0 0 / 70%);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* Selected, which on a desktop is what hover and focus look like. */
+.icon-link[href]:hover,
+.icon-link[href]:focus-visible {
+  background: rgb(10 36 106 / 55%);
+  outline-offset: -2px;
+}
+.icon-link[href]:hover .icon-label,
+.icon-link[href]:focus-visible .icon-label {
+  background: var(--title-a);
+  text-shadow: none;
+}
+
+/* A day with no page yet. Greyed art and dimmed text: it is on the desktop because the
+   challenge has thirty days, and it is not a target because that one is not built. */
+.icon-link.is-todo { opacity: .7; }
+/* Measured against a 6x capture, not guessed. A full greyscale -- and .8 of one -- leaves
+   a grey document with no map on it at 32px. At .5 the green still reads as green while
+   being obviously drained next to a day that is built. */
+.icon-link.is-todo .icon-art { filter: grayscale(.5) drop-shadow(1px 1px 1px rgb(0 0 0 / 35%)); }
+
+.noscript-note {
+  position: fixed;
+  z-index: 2;
+  left: 1rem;
+  top: 1rem;
+  max-width: 24rem;
+  margin: 0;
+  padding: .6rem .8rem;
   background: var(--face);
-  padding: 0 .2rem;
+  border: 1px solid var(--rule);
+  box-shadow: 2px 2px 5px rgb(0 0 0 / 30%);
+  color: var(--ink);
 }

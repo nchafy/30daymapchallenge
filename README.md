@@ -18,7 +18,8 @@ reachable from another machine.
 
 | Path | What it is |
 | --- | --- |
-| `index.html` | The day index, in a window frame. |
+| `index.html` | The desktop. One icon per day; opening one puts it in the taskbar. |
+| `assets/taskbar.mjs` | Which days are open, and the window buttons in the bar. |
 | `days/00-base/` | The base map with nothing on it. Start here. |
 | `days/02-lines/` | Day 2. How much of a GPS trace is noise. `docs/gps-noise.md`. |
 | `days/_template/` | Copy this to start a day. |
@@ -27,6 +28,7 @@ reachable from another machine.
 | `assets/days.mjs` | The thirty themes. Set `dir` when a day gets a page. |
 | `assets/xp.css` | The Luna theme. The only file that knows what decade this is. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
+| `scripts/zoom_icon.py` | Captures the desktop icons at 8x, for judging 32 px art. |
 | `docs/basemap.md` | Basemap sources, their licences, and how to write a day. |
 | `docs/gps-noise.md` | Day 2's method, what was verified against what, and the privacy rules for a Strava export. |
 
@@ -39,6 +41,10 @@ cp -r days/_template days/07-ten-minute-map
 Then replace `NN` and `THEME` in its two files, set `dir` on day 7's row in
 `assets/days.mjs`, and write the overlay in `map.mjs`.
 
+Setting `dir` is what turns the desktop icon into a link and what lets the taskbar name
+the window. Until you do, the page still works if you type its URL, and its taskbar is
+empty — `taskbar.mjs` only knows the days `days.mjs` declares.
+
 `draw(map, ctx)` is called once per basemap load, against a fresh empty style, so it can
 add its sources unconditionally. State that must survive a basemap switch lives outside
 it. `docs/basemap.md` has the rest, including the `styledata` trap that cost an
@@ -46,7 +52,24 @@ afternoon.
 
 ## The look
 
-An early-2000s car satnav in a Windows XP window.
+An early-2000s car satnav in a Windows XP window, on an XP desktop.
+
+The index is a desktop: 31 icons in columns that fill top-to-bottom, a numbered map-sheet
+icon per day, and the days with no page yet greyed rather than hidden. Opening one puts a
+button in the taskbar, and the button stays there while you open another — the list of
+open windows lives in `localStorage`, because each day is a separate page and a navigation
+throws every variable away. The close box on a window button, and the one on a window's
+own title bar, both really close it.
+
+One deliberate departure: an icon opens on a single activation, not a double click. A
+target needing a double click is unreachable by keyboard and awkward on touch, so each
+icon is a plain link.
+
+**The wallpaper is not Bliss.** Bliss is a photograph owned by Microsoft, taken by Charles
+O'Rear in 1996, and it is not licensed for redistribution — so it is not in this repo. The
+desktop draws a CSS stand-in in the same place: a sky gradient, three soft clouds, and an
+elliptical green hill. `scripts/check.py` counts sky and hill pixels, because a CSS
+gradient that stops drawing produces no failed request and nothing in the console.
 
 The frame, the taskbar and the Start menu are Luna. The `simple` basemap is
 [OpenFreeMap](https://openfreemap.org/) `liberty` with a paint-only satnav palette over
