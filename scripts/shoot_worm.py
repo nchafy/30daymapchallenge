@@ -69,6 +69,20 @@ def main() -> int:
                 print("no noise grid; run noise_by_area.py first", file=sys.stderr)
                 return 1
 
+            # The overview first: the whole grid, which is the view that has to read at a
+            # glance before anyone clicks anything.
+            page.evaluate(
+                """(() => {
+                  if (!window.lines.noiseShown()) {
+                    document.getElementById('toggle-noise').click();
+                  }
+                })()"""
+            )
+            time.sleep(3.0)
+            data = page.call("Page.captureScreenshot", format="png")
+            (out_dir / "segments-overview.png").write_bytes(base64.b64decode(data["data"]))
+            print(f"overview -> segments-overview.png")
+
             for label, pick in (("noisy", "max"), ("quiet", "min")):
                 got = page.evaluate(
                     """((pick) => {

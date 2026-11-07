@@ -217,9 +217,10 @@ runs is not public information.
 The number is 2.3 points of spread between the quietest and noisiest places. The way to
 *see* it needs no number at all.
 
-Press **Show segments** for the choropleth — a diverging ramp over the grid, which answers
-*where*. Click a segment and the map draws **every crossing of that stretch on top of
-itself**: one faint line per run that went through it. Where the receiver agreed with
+Press **Show segments** and every well-sampled stretch of road is coloured by how much it
+disagrees with itself — a diverging ramp along the path, which answers *where*. Click a
+segment and the map draws **every crossing of that stretch on top of itself**: one faint
+line per run that went through it. Where the receiver agreed with
 itself the lines lie on each other; where it did not, they fan apart. The width of that
 bundle is the thing this whole page measures as a percentage.
 
@@ -236,27 +237,50 @@ Three levels, and a run is the *destination* rather than the entry point:
 3. **A crossing** — that stretch pulled solid out of the bundle, on its own run, with the
    slider live on the full-resolution trace.
 
-### Choices in the choropleth worth not undoing
+### Choices worth not undoing
 
-- **Diverging ramp, grey midpoint.** The quantity is signed, so the ramp is two hues with a
-  neutral middle and never a hue at zero. Each arm was validated as an ordinal ramp against
-  the surface it renders on: monotone lightness, step gaps over 0.06, innermost steps at
-  3.08:1 and 3.09:1. Across the midpoint the worst colour-vision-deficient pair is ΔE 17.2
-  against an ≥8 target.
-- **A scrim under the cells.** A ramp has to be validated against the colour behind it, and
-  the satnav basemap has no single colour behind anything. The scrim makes the surface
-  deterministic whichever basemap is up, which is what let the ramp be computed instead of
-  guessed.
-- **Cells opaque up to zoom 15, then faded.** Painting the ramp at a constant 0.85 put the
-  colours actually on screen outside what was validated — one step landed 32 per channel
-  away. Above zoom 16 a single 222 m cell fills the viewport, so there is nothing left to
-  compare and a screen of flat colour just buries the crossings; the outline stays, so the
-  cell's extent is still legible.
-- **Every cell outlined, always.** The midpoint is deliberately recessive at 1.15:1. Without
-  an outline, "measured, and unremarkable" and "too few passes to report" would look
-  identical.
-- **The traces recede when the grid is up.** Four hundred traces on top of the cells they
-  are explaining wins, and should not.
+**The road is coloured, not the grid square.** The square was only ever the key used to
+group repeat passes; a window is 150 m of path. Drawing the squares claimed an extent the
+measurement never had, cut across junctions, and looked like blotches. Each segment is now
+drawn as the simplified path of the crossing whose own reading is nearest the segment's
+median — a real trace through the place, rather than an average of traces, which would be a
+path nobody ran.
+
+**Colour and width both ramp.** Diverging blue to red, neutral middle, measured against the
+casing each line sits on:
+
+| | |
+| --- | --- |
+| each arm as an ordinal ramp | monotone lightness, step gaps ≥ 0.06 |
+| innermost steps vs the casing | 4.10:1 blue, 4.12:1 red |
+| across the midpoint, CVD | worst pair ΔE 8.6 deutan, 10.5 tritan (≥8 target) |
+| across the midpoint, normal vision | worst pair ΔE 17.4 (≥15 floor) |
+
+The midpoint is `#7f7f77`, not the palette's darker `#383835`. A dark neutral is right for
+an *area* fill, where "unremarkable" should recede toward the surface; on a thin *line* it
+recedes to invisible, and an invisible segment is indistinguishable from one with too few
+passes to report. Lightening it costs separation from the red arm, so it was walked up only
+until the CVD gate passed again: `#5c5c56` and `#6e6e67` fail at ΔE 5.8 and 5.7, `#7f7f77`
+clears at 8.6. That leaves the midpoint about as light as the innermost steps, so **width**
+carries "near zero is unremarkable" instead — a hairline at the middle, heavy at the
+extremes. Two channels for one quantity, which also survives greyscale.
+
+**A casing under every segment, and the scrim above the whole basemap.** These are two
+different jobs and conflating them was the bug. The casing is the ramp's actual surface, so
+it is what the ramp is validated against. The scrim only stops an olive-and-yellow satnav
+basemap from competing, so its alpha is a legibility choice — street names still have to
+read through it to say *which* street is noisy.
+
+The scrim's **position** is the part that was wrong. The base map hands a day `ctx.beforeId`
+so that place labels stay above a thin data overlay, which is right for the traces. A scrim
+inserted there sat below fifty basemap layers — bridges, one-way arrows, every label —
+which painted over it at full brightness. `scripts/probe_order.py` prints the live order;
+everything that must cover the basemap is now appended above all of it, and the probe
+reports zero basemap layers above.
+
+**Opaque marks.** Painting a validated ramp at partial alpha composites every step toward
+whatever is behind it. At 0.85 one step landed about 32 per channel from the colour that was
+checked, so the colours on screen were never the colours validated.
 
 ## Two things the page cannot tell you
 

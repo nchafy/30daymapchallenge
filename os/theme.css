@@ -337,15 +337,16 @@ input[type="text"], input[type="search"], select {
 .key div { display: flex; align-items: center; gap: .4rem; font-size: 11px; }
 .key i { display: block; width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
 
-/* A choropleth's key, where the swatch stands for an area and so is a filled block.
-   The 1px outline is the same relief the cells themselves carry: the midpoint class is
-   deliberately recessive against the map, and without an edge its swatch would be an
-   empty gap in the list. */
+/* The segment key. The swatch is a line because the marks are lines, and it carries the
+   class's own width as well as its colour -- width is the second channel on the map, so a
+   key showing only colour would be describing half the encoding. Set per row by map.mjs. */
 .noise-legend i {
-  width: 16px;
-  height: 11px;
-  border: 1px solid rgb(223 232 245 / 45%);
-  border-top-width: 1px;
+  width: 20px;
+  height: 0;
+  border-top-style: solid;
+  /* Mirrors the casing under each segment on the map, so a near-zero class is visible in
+     the key for the same reason it is visible on the map. */
+  outline: 1px solid #14161a;
 }
 .noise-legend div { font-variant-numeric: tabular-nums; }
 

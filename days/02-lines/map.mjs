@@ -92,48 +92,58 @@ const FULL = 1;
    --------------------------------------------------------------------------- */
 
 const NOISE = 'noise';
+
+/* There is no scrim any more, and that is a fix rather than a simplification.
+ *
+ * The first version dimmed the basemap with a `background` layer so the ramp would have a
+ * deterministic surface to be validated against. Reading the live layer order showed why
+ * that could not work: this page's overlay goes in at `ctx.beforeId`, which the base map
+ * chooses so that *place labels stay above the data* -- and that left fifty basemap layers
+ * above the scrim. Bridges, one-way arrows and every label painted at full brightness over
+ * a dimmed map, which is exactly the wrong-order mess it looked like.
+ *
+ * A casing under each coloured line does the same job locally and correctly: it gives every
+ * mark its own known surface without touching anything else's stacking. The rest of this
+ * page already works that way. */
+const NOISE_CASING_INK = '#14161a';
 const NOISE_SCRIM = 'noise-scrim';
 
-/* A scrim between the basemap and the cells, so the choropleth has a surface.
- *
- * Not decoration. A classed ramp has to be validated against the colour behind it, and
- * the satnav basemap has no single colour behind anything -- olive land, navy water,
- * yellow arterials. The scrim makes the surface deterministic whichever basemap is
- * showing, which is what let the ramp below be computed rather than guessed. The project's
- * own `docs/basemap.md` reaches the same conclusion from the other direction: "a day whose
- * data needs a quiet backdrop should pick `geography`, or empty `SATNAV`."
- *
- * At this alpha the composited surface runs about #181a1e over water to #2e2e2e over the
- * palest road fill, and the ramp was validated against #2e2e2e -- the worst case, because
- * a lighter surface is what costs a light mark its contrast. */
-const SCRIM = 'rgba(16, 18, 22, 0.88)';
+//: Dims the basemap while the segments are up. Moderate on purpose: heavy enough that an
+//: olive-and-yellow satnav basemap stops competing with a diverging ramp, light enough
+//: that street names read through it.
+const SCRIM = 'rgba(20, 22, 26, 0.62)';
 
-/* Diverging, blue to red, neutral grey midpoint. Signed data gets a diverging ramp and a
- * diverging ramp gets a grey middle, never a hue.
+/* Diverging, blue to red, neutral grey midpoint. Signed data gets a diverging ramp, and a
+ * diverging ramp gets a grey middle rather than a hue.
  *
- * Away from zero is *lighter*, because the surface is dark: the step nearest the midpoint
- * is the one at risk of vanishing, so it is the one that had to clear contrast. Measured
- * against #2e2e2e with the palette validator:
+ * Every value measured against the casing colour with the palette validator:
  *
- *   each arm as an ordinal ramp     monotone L, step gaps >= 0.06, PASS
- *   innermost steps vs surface      3.08:1 blue, 3.09:1 red
- *   across the midpoint, CVD        worst pair dE 17.2 protan, 27.3 tritan (>= 8 target)
- *   across the midpoint, normal     worst pair dE 28.9 (>= 15 floor)
+ *   each arm as an ordinal ramp      monotone L, step gaps >= 0.06, PASS
+ *   innermost steps vs the casing    4.10:1 blue, 4.12:1 red
+ *   across the midpoint, CVD         worst pair dE 8.6 deutan, 10.5 tritan (>= 8 target)
+ *   across the midpoint, normal      worst pair dE 17.4 (>= 15 floor)
+ *   all three vs the casing          all clear 3:1
  *
- * The midpoint is deliberately recessive at 1.15:1 -- "nothing notable here" should not
- * compete. The validator flags that as needing relief, and the relief is `NOISE_OUTLINE`:
- * every cell is outlined, so a cell's *existence* never depends on its fill. Without it a
- * midpoint cell and a cell with too few passes to report would look identical. */
-const NOISE_RAMP = ['#9ec5f4', '#5598e7', '#2a78d6', '#383835', '#d6453f', '#ef6a5e', '#f9a79c'];
+ * The midpoint is #7f7f77 and not the palette's darker #383835, which is a deliberate
+ * departure with a measurement behind it. A dark neutral is right for an area fill, where
+ * "unremarkable" should recede toward the surface. On a thin line it recedes all the way to
+ * invisible, and an invisible segment is indistinguishable from a segment with too few
+ * passes to report -- a different fact. Lightening it costs separation from the red arm, so
+ * it was walked up until the CVD gate passed again and no further: #5c5c56 and #6e6e67 both
+ * fail at dE 5.8 and 5.7, and #7f7f77 clears at 8.6.
+ *
+ * That makes the midpoint about as light as the innermost steps, so colour alone no longer
+ * says "near zero is unremarkable". `NOISE_WIDTHS` says it instead: thin at the middle,
+ * thickening outward. Two channels for one quantity, which also means the map reads before
+ * anyone finds the legend. */
+const NOISE_RAMP = ['#9ec5f4', '#5598e7', '#2a78d6', '#7f7f77', '#d6453f', '#ef6a5e', '#f9a79c'];
 
-/* Class edges in percentage points of speed-adjusted inflation.
- *
- * Fixed rather than derived from the data, so two exports are comparable and the legend
- * means the same thing twice. Symmetric about zero because the quantity is. */
+//: Width per class, symmetric about the middle. The second channel: a near-zero segment is
+//: a hairline and an extreme one is heavy, so salience tracks the measurement even in
+//: greyscale or for a reader who cannot separate the two hues.
+const NOISE_WIDTHS = [4.5, 3.5, 2.5, 1.3, 2.5, 3.5, 4.5];
+
 const NOISE_BREAKS = [-1.0, -0.5, -0.2, 0.2, 0.5, 1.0];
-
-//: Light enough to read against every step including the recessive midpoint.
-const NOISE_OUTLINE_INK = 'rgba(223, 232, 245, 0.45)';
 
 const PROP = 'adjusted_pts';
 //: The one crossing being shown, drawn over its own run.
@@ -162,12 +172,21 @@ const GHOST_CAP = 12;
 //: encodes how many passes agreed as well as where they did.
 const GHOST_INK = 'rgba(255, 255, 255, 0.3)';
 
-/* The step expression MapLibre wants, built from the two constants above so the fill and
- * the legend cannot disagree about where a class starts. */
-function noiseFillExpression() {
+/* The step expressions MapLibre wants, both built from the same breaks, so the colour, the
+ * width and the legend cannot disagree about where a class starts.
+ *
+ * @param {any[]} values  One per class: `NOISE_RAMP` or `NOISE_WIDTHS`.
+ */
+function noiseStepExpression(values) {
   const stops = [];
-  NOISE_BREAKS.forEach((edge, i) => stops.push(edge, NOISE_RAMP[i + 1]));
-  return ['step', ['get', PROP], NOISE_RAMP[0], ...stops];
+  NOISE_BREAKS.forEach((edge, i) => stops.push(edge, values[i + 1]));
+  return ['step', ['get', PROP], values[0], ...stops];
+}
+
+//: The casing is the line plus a ring either side, so every segment keeps its own surface
+//: whatever the basemap is doing underneath. Two pixels, per the mark spec.
+function noiseCasingExpression() {
+  return noiseStepExpression(NOISE_WIDTHS.map((w) => w + 2));
 }
 
 /** Legend rows, in the same order the map paints them. */
@@ -180,7 +199,7 @@ function noiseLegendRows() {
     if (lo === undefined) label = `below ${fmt(hi)}`;
     else if (hi === undefined) label = `above ${fmt(lo)}`;
     else label = `${fmt(lo)} to ${fmt(hi)}`;
-    return { colour, label };
+    return { colour, width: NOISE_WIDTHS[i], label };
   });
 }
 
@@ -348,9 +367,12 @@ function goToCells(map) {
   // has ever visited -- here, 50 degrees of longitude -- so the camera went continental
   // and all 190 cells came out sub-pixel. Same reasoning as the page's opening camera.
   const home = overview && overview.home;
+  // LineString, so `coordinates` is already the list of positions. It was `[[ring]]` when
+  // these were squares, and the leftover `[0]` indexing fed bare numbers to a destructure
+  // -- "number is not iterable", thrown once per press.
   const inHome = home
     ? noise.features.filter((f) => {
-        const [lon, lat] = f.geometry.coordinates[0][0];
+        const [lon, lat] = f.geometry.coordinates[0];
         return (
           lon >= home[0][0] && lon <= home[1][0] && lat >= home[0][1] && lat <= home[1][1]
         );
@@ -358,7 +380,7 @@ function goToCells(map) {
     : noise.features;
   const chosen = inHome.length ? inHome : noise.features;
 
-  const box = boundsOfCoords(chosen.flatMap((f) => f.geometry.coordinates[0]));
+  const box = boundsOfCoords(chosen.flatMap((f) => f.geometry.coordinates));
   if (!box) return;
   const overlays = document.querySelector('.overlays > *');
   const gutter = overlays ? Math.ceil(overlays.getBoundingClientRect().width) + 24 : 24;
@@ -831,72 +853,6 @@ const base = await createBaseMap({
   zoom: 11,
 
   draw(map, ctx) {
-    // The noise grid goes in first, so the traces draw on top of it. The choropleth is
-    // context; the lines are the subject.
-    if (noise) {
-      map.addSource(NOISE, { type: 'geojson', data: noise });
-      map.addLayer(
-        {
-          id: NOISE_SCRIM,
-          type: 'background',
-          layout: { visibility: showNoise ? 'visible' : 'none' },
-          paint: { 'background-color': SCRIM },
-        },
-        ctx.beforeId
-      );
-      map.addLayer(
-        {
-          id: NOISE,
-          type: 'fill',
-          source: NOISE,
-          layout: { visibility: showNoise ? 'visible' : 'none' },
-          paint: {
-            'fill-color': noiseFillExpression(),
-            // Opaque where cells are being compared with each other, then gone once the
-            // camera is inside one.
-            //
-            // Opaque matters: the ramp was validated as hex against the scrim's surface,
-            // and painting it at a constant 0.85 put the colours actually on screen
-            // outside what was checked -- #d6453f landed about 32 per channel away. So
-            // full opacity holds through zoom 15, which is every zoom at which the fill is
-            // doing its job.
-            //
-            // Fading above that is not a contradiction. Past zoom 16 one 222 m cell fills
-            // the viewport, a "which cell is noisier" encoding has nothing left to compare,
-            // and a screen of flat salmon buries the crossings the reader zoomed in to
-            // look at. The outline stays, so the cell's extent is still legible.
-            'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, 1, 16.5, 0],
-          },
-        },
-        ctx.beforeId
-      );
-      map.addLayer(
-        {
-          id: `${NOISE}-outline`,
-          type: 'line',
-          source: NOISE,
-          layout: { visibility: showNoise ? 'visible' : 'none' },
-          // Every cell outlined, always. This is the relief the midpoint colour needs:
-          // at 1.15:1 against the surface a midpoint cell is invisible, and without an
-          // outline "measured, and unremarkable" would look identical to "not enough
-          // passes to report". A cell's existence must not depend on its fill.
-          paint: { 'line-color': NOISE_OUTLINE_INK, 'line-width': 1 },
-        },
-        ctx.beforeId
-      );
-      map.addLayer(
-        {
-          id: `${NOISE}-selected`,
-          type: 'line',
-          source: NOISE,
-          layout: { visibility: showNoise ? 'visible' : 'none' },
-          paint: { 'line-color': '#ffffff', 'line-width': 2.5 },
-          filter: ['==', ['get', 'id'], selectedCell || ''],
-        },
-        ctx.beforeId
-      );
-    }
-
     map.addSource(ALL, { type: 'geojson', data: allData() });
     map.addSource(FOCUS, { type: 'geojson', data: focusData().fc });
     map.addSource(MATCHED, { type: 'geojson', data: matchedGeometry() });
@@ -967,6 +923,98 @@ const base = await createBaseMap({
       },
       ctx.beforeId
     );
+    //: Last, so it sits above the drawn lines and takes the pointer first.
+    map.addLayer(
+      {
+        id: HIT,
+        type: 'line',
+        source: ALL,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': INK_RECORDED, 'line-opacity': 0, 'line-width': WIDTH.hit },
+      },
+      ctx.beforeId
+    );
+
+    /* Everything from here up sits above the whole basemap, `ctx.beforeId` included.
+     *
+     * That insertion point exists so place labels stay above a thin data overlay, and it
+     * is right for the traces above. It is wrong for a scrim and for an area-scale
+     * encoding: reading the live style showed fifty basemap layers -- bridges, one-way
+     * arrows, every label -- painting above it, which is why the first version of this
+     * looked like it was drawn in the wrong order. It was.
+     */
+    map.addLayer({
+      id: NOISE_SCRIM,
+      type: 'background',
+      layout: { visibility: showNoise ? 'visible' : 'none' },
+      // Quiets the basemap so the coloured segments carry the eye; it is not what the ramp
+      // was validated against. Each segment's own opaque casing is that surface, which is
+      // why this alpha is a legibility choice rather than a contrast gate -- street names
+      // still have to be readable through it to say *which* street is noisy.
+      paint: { 'background-color': SCRIM },
+    });
+    // The noise layer goes in first, so the traces draw on top of it. The coloured
+    // segments are context; the lines a reader clicks are the subject.
+    if (noise) {
+      map.addSource(NOISE, { type: 'geojson', data: noise });
+      map.addLayer(
+        {
+          id: `${NOISE}-casing`,
+          type: 'line',
+          source: NOISE,
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+            visibility: showNoise ? 'visible' : 'none',
+          },
+          // Each segment's own surface. This is what replaced a full-screen scrim: the
+          // scrim sat below fifty basemap layers, so bridges and labels painted over it at
+          // full brightness, and the ramp it was meant to give a surface to was being
+          // judged against a colour that was not actually behind the marks.
+          paint: { 'line-color': NOISE_CASING_INK, 'line-width': noiseCasingExpression() },
+        }
+      );
+      map.addLayer(
+        {
+          id: `${NOISE}-selected`,
+          type: 'line',
+          source: NOISE,
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+            visibility: showNoise ? 'visible' : 'none',
+          },
+          // A white halo around the open segment, wider than its casing so it reads at any
+          // class width.
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': noiseStepExpression(NOISE_WIDTHS.map((w) => w + 6)),
+            'line-opacity': 0.75,
+            'line-blur': 1,
+          },
+          filter: ['==', ['get', 'id'], selectedCell || ''],
+        }
+      );
+      map.addLayer(
+        {
+          id: NOISE,
+          type: 'line',
+          source: NOISE,
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+            visibility: showNoise ? 'visible' : 'none',
+          },
+          // Opaque, so the colours on screen are the ones that were validated. Painting a
+          // checked ramp at partial alpha composites every step toward whatever is behind
+          // it and puts the result outside what was measured.
+          paint: {
+            'line-color': noiseStepExpression(NOISE_RAMP),
+            'line-width': noiseStepExpression(NOISE_WIDTHS),
+          },
+        }
+      );
+    }
     //: The worm, under the one solid crossing: every loaded pass over this segment, so
     //: the bundle's width shows the disagreement between them.
     map.addSource(GHOSTS, { type: 'geojson', data: ghostData() });
@@ -977,8 +1025,7 @@ const base = await createBaseMap({
         source: GHOSTS,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': GHOST_INK, 'line-width': 1.5 },
-      },
-      ctx.beforeId
+      }
     );
 
     //: One crossing of a segment, over its own run. Drawn above the focused trace so the
@@ -991,21 +1038,9 @@ const base = await createBaseMap({
         source: PASS,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#ffffff', 'line-width': 3.5 },
-      },
-      ctx.beforeId
+      }
     );
 
-    //: Last, so it sits above the drawn lines and takes the pointer first.
-    map.addLayer(
-      {
-        id: HIT,
-        type: 'line',
-        source: ALL,
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': INK_RECORDED, 'line-opacity': 0, 'line-width': WIDTH.hit },
-      },
-      ctx.beforeId
-    );
   },
 });
 
@@ -1121,10 +1156,12 @@ if (base) {
       // disagree with the map about where a class starts.
       if (legendEl) {
         legendEl.replaceChildren(
-          ...noiseLegendRows().map(({ colour, label }) => {
+          ...noiseLegendRows().map(({ colour, width, label }) => {
             const row = document.createElement('div');
             const swatch = document.createElement('i');
-            swatch.style.background = colour;
+            // Colour and width together, because the map encodes the class in both.
+            swatch.style.borderTopColor = colour;
+            swatch.style.borderTopWidth = `${width}px`;
             const text = document.createElement('span');
             // Text in text tokens, never the series colour.
             text.textContent = label;
@@ -1144,7 +1181,7 @@ if (base) {
         showNoise = !showNoise;
         noiseToggle.setAttribute('aria-pressed', String(showNoise));
         if (legendEl) legendEl.hidden = !showNoise;
-        for (const id of [NOISE_SCRIM, NOISE, `${NOISE}-outline`, `${NOISE}-selected`]) {
+        for (const id of [NOISE_SCRIM, `${NOISE}-casing`, `${NOISE}-selected`, NOISE]) {
           if (map.getLayer(id)) {
             map.setLayoutProperty(id, 'visibility', showNoise ? 'visible' : 'none');
           }

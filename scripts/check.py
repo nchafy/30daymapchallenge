@@ -904,7 +904,7 @@ def check_os_csp(page, viewport: str, out_dir: Path, base_url: str) -> list[str]
 
 
 #: The choropleth's layers and its validated ramp.
-NOISE_LAYERS = ("noise-scrim", "noise", "noise-outline", "noise-selected")
+NOISE_LAYERS = ("noise-casing", "noise-selected", "noise")
 #: Every step of the diverging ramp in `days/02-lines/map.mjs`. Counted together: which
 #: classes are on screen depends on where the camera is, so the assertion is that the
 #: choropleth paints, not that a particular class does.

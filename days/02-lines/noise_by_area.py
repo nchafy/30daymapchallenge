@@ -107,6 +107,9 @@ def windows_for(track):
             break
 
         i0, i1 = kept[start], kept[end]
+        # The simplified points inside this window, which is the shape of the road rather
+        # than the shape of the recording. This is what the map draws for the segment.
+        span = kept[start : end + 1]
         raw = raw_cum[i1] - raw_cum[i0]
         if simp > 0 and raw > 0:
             dt = track.t[i1] - track.t[i0] if np.isfinite(track.t[i1]) and np.isfinite(track.t[i0]) else float("nan")
@@ -122,6 +125,7 @@ def windows_for(track):
                 simp,
                 int(i0),
                 int(i1),
+                np.column_stack([track.lon[span], track.lat[span]]),
             )
         start = end
 
@@ -166,11 +170,11 @@ def main() -> int:
 
         kept_any = False
         aid = prepare.activity_id(path, set())
-        for lat, lon, infl, speed, simp, i0, i1 in windows_for(track):
+        for lat, lon, infl, speed, simp, i0, i1, geom in windows_for(track):
             if not np.isfinite(speed) or not (SPEED_BAND_MS[0] <= speed <= SPEED_BAND_MS[1]):
                 skipped_speed += 1
                 continue
-            rows.append((lat, lon, infl, speed, path.name, aid, i0, i1, track.name))
+            rows.append((lat, lon, infl, speed, path.name, aid, i0, i1, track.name, geom))
             kept_any = True
         if kept_any:
             used_activities += 1
@@ -244,9 +248,12 @@ def main() -> int:
     # Bin spatially. Both the raw inflation and the speed-adjusted residual, so the report
     # can say whether the pattern is the same one.
     cells = {}
-    for idx, (lat, lon, value, spd, name, aid, i0, i1, title) in enumerate(rows):
+    for idx, (lat, lon, value, spd, name, aid, i0, i1, title, geom) in enumerate(rows):
         key = (round(lat / CELL_DEG), round(lon / CELL_DEG))
-        cell = cells.setdefault(key, {"values": [], "resid": [], "acts": set(), "passes": []})
+        cell = cells.setdefault(
+            key, {"values": [], "resid": [], "acts": set(), "passes": [], "geoms": []}
+        )
+        cell["geoms"].append(geom)
         cell["values"].append(value)
         cell["resid"].append(residual[idx])
         cell["acts"].add(name)
@@ -285,6 +292,11 @@ def main() -> int:
         cell_id = f"{ky}:{kx}"
         vals = np.array(v["values"])
         res = np.array(v["resid"])
+        # One crossing stands for the segment's shape: the one whose own reading is nearest
+        # the segment's median, so the line drawn is a real trace through the place rather
+        # than an average of traces, which would be a path nobody ran.
+        pick = int(np.argmin(np.abs(res - np.median(res))))
+        geom = v["geoms"][pick]
         stats.append(
             {
                 "id": cell_id,
@@ -293,6 +305,7 @@ def main() -> int:
                 "median": float(np.median(vals)),
                 "resid": float(np.median(res)),
                 "passes": sorted(v["passes"], key=lambda q: -q["adjusted_pts"]),
+                "geometry": np.round(geom, prepare.COORD_DP).tolist(),
                 "p90": float(np.percentile(vals, 90)),
                 "n": len(vals),
                 "activities": len(v["acts"]),
@@ -347,17 +360,13 @@ def main() -> int:
                 "features": [
                     {
                         "type": "Feature",
+                        # The stretch of road, not the box that binned it. A grid of
+                        # opaque squares reads as blotches, cuts across junctions, and
+                        # claims an extent the measurement never had: a window is 150 m of
+                        # path, and the square was only ever the key used to group repeats.
                         "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [
-                                [
-                                    [s["lon"] - CELL_DEG / 2, s["lat"] - CELL_DEG / 2],
-                                    [s["lon"] + CELL_DEG / 2, s["lat"] - CELL_DEG / 2],
-                                    [s["lon"] + CELL_DEG / 2, s["lat"] + CELL_DEG / 2],
-                                    [s["lon"] - CELL_DEG / 2, s["lat"] + CELL_DEG / 2],
-                                    [s["lon"] - CELL_DEG / 2, s["lat"] - CELL_DEG / 2],
-                                ]
-                            ],
+                            "type": "LineString",
+                            "coordinates": s["geometry"],
                         },
                         "properties": {
                             "id": s["id"],
