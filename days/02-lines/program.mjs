@@ -816,6 +816,20 @@ export const program = {
       return button;
     }
 
+    /* A segment's own extent, found from the feature its properties came from.
+     *
+     * A click hands over properties; the geometry lives on the feature. Looked up by id
+     * rather than threaded through, because every caller only ever holds the properties.
+     *
+     * A way has a real extent. The grid had only a centre and one cell size, which is why
+     * the camera used to be given a box drawn around a point. */
+    function segmentBounds(props) {
+      if (!noise) return null;
+      const feature = noise.features.find((f) => f.properties.id === props.id);
+      if (!feature) return null;
+      return boundsOfCoords(feature.geometry.coordinates);
+    }
+
     /** Open a segment: what this stretch measures, and every run that crossed it. */
     async function openSegment(map, props) {
       if (!panel) return;
@@ -833,8 +847,10 @@ export const program = {
       // traces four metres apart are two traces.
       map.fitBounds(
         [
-          [props.lon - noise.cell_deg, props.lat - noise.cell_deg * 0.7],
-          [props.lon + noise.cell_deg, props.lat + noise.cell_deg * 0.7],
+          ...(segmentBounds(props) || [
+            [props.lon - 0.002, props.lat - 0.0014],
+            [props.lon + 0.002, props.lat + 0.0014],
+          ]),
         ],
         { padding: 40, duration: 600, maxZoom: 18 }
       );
@@ -979,7 +995,18 @@ export const program = {
     // Optional, and a separate try: a missing noise grid disables one control. Folding it in
     // above would turn "you have not run noise_by_area.py" into "the page has no data".
     try {
-      noise = await fetchFirst('area-noise.json');
+      // Streets first, then the grid.
+      //
+      // `street_segments.py` keys on the OSM way the matcher put you on, which is the unit
+      // the question is actually about. `noise_by_area.py` keys on a 222 m square, which
+      // was always an admission: a square is not a place and it cuts across junctions.
+      // Both write the same property names, so the map, the legend and the drill-down do
+      // not care which arrived — only the caption does.
+      try {
+        noise = await fetchFirst('street-noise.json');
+      } catch {
+        noise = await fetchFirst('area-noise.json');
+      }
     } catch {
       noise = null;
     }
@@ -1351,11 +1378,15 @@ export const program = {
             );
           }
           if (noiseNote) {
-            // Degrees of latitude to metres, not to kilometres. This read "0.222 m across"
+            // The caption is the one thing that cares which file arrived. Degrees of
+            // latitude to metres, not kilometres: the square version read "0.222 m across"
             // until a screenshot was looked at.
-            const across = Math.round(noise.cell_deg * 111_000);
+            const unit =
+              noise.unit === 'osm_way'
+                ? 'streets'
+                : `${Math.round((noise.cell_deg || 0.002) * 111_000)} m squares`;
             noiseNote.textContent =
-              `${noise.features.length} segments, ${across} m across, speed-adjusted.`;
+              `${noise.features.length} ${unit}, speed-adjusted.`;
           }
           noiseToggle.addEventListener('click', () => {
             showNoise = !showNoise;

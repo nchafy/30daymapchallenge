@@ -528,27 +528,6 @@ MIN_LINE_PIXELS = 200
 INK_SLACK = 60
 
 
-#: Colours the desktop wallpaper must actually paint, and how many pixels of each.
-#:
-#: The wallpaper is pure CSS -- a sky gradient and an elliptical hill -- so there is no
-#: request that can 404 and nothing in the console if it stops drawing. A pixel count is
-#: the only thing that notices.
-DESKTOP_INKS = {"sky": (0x3F, 0x93, 0xDD), "hill": (0x76, 0xB5, 0x2C)}
-DESKTOP_INK_SLACK = 34
-#: Measured by `scripts/measure_wallpaper.py`, which renders the desktop with the
-#: wallpaper and then with it removed, at both viewports:
-#:
-#:                      sky      hill
-#:   healthy        101,841   116,286   (worst of the two viewports)
-#:   no wallpaper        22       119
-#:
-#: 10,000 is about 80x above the broken case and 10x below the healthy one. The first
-#: value was guessed at 2,000 and could not fail at 1280x820, because the count then
-#: included the taskbar -- whose blue is inside the slack for the sky. Excluding
-#: `.taskbar` is what moved the broken case from 3,087 to 22.
-MIN_DESKTOP_PIXELS = 10_000
-
-
 def programs_in_themes() -> list[str]:
     """The folders `days/themes.mjs` claims have a page, base map included.
 

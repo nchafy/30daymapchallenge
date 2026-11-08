@@ -20,7 +20,7 @@ from cdp import Browser  # noqa: E402
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PORT = 8095
 MINE = {
-    "noise-scrim", "noise", "noise-outline", "noise-selected",
+    "noise-scrim", "noise", "noise-casing", "noise-selected",
     "all", "all-casing", "all-hit", "focus", "focus-casing",
     "matched", "matched-casing", "ghosts", "pass",
 }
@@ -47,14 +47,22 @@ def main() -> int:
                 "Emulation.setDeviceMetricsOverride",
                 width=1280, height=820, deviceScaleFactor=1, mobile=False,
             )
-            page.navigate(f"http://127.0.0.1:{PORT}/days/02-lines/")
+            page.navigate(f"http://127.0.0.1:{PORT}/")
+            # One page now: boot the desktop, then open the day as a program.
+            for _ in range(80):
+                if page.evaluate("Boolean(window.webxp)"):
+                    break
+                time.sleep(0.25)
+            page.evaluate(
+                "window.webxp.launch('02-lines').then(() => true)", await_promise=True
+            )
             for _ in range(80):
                 if page.evaluate("Boolean(window.lines && window.lines.hasNoise)"):
                     break
                 time.sleep(0.25)
             page.evaluate(
                 """(() => {
-                  const b = document.getElementById('toggle-noise');
+                  const b = document.querySelector('[data-role="noise-toggle"]');
                   if (b && !b.disabled && !window.lines.noiseShown()) b.click();
                 })()"""
             )

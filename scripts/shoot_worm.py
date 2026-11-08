@@ -59,7 +59,15 @@ def main() -> int:
                 deviceScaleFactor=1,
                 mobile=False,
             )
-            page.navigate(f"http://127.0.0.1:{PORT}/days/02-lines/")
+            page.navigate(f"http://127.0.0.1:{PORT}/")
+            # One page now: boot the desktop, then open the day as a program.
+            for _ in range(80):
+                if page.evaluate("Boolean(window.webxp)"):
+                    break
+                time.sleep(0.25)
+            page.evaluate(
+                "window.webxp.launch('02-lines').then(() => true)", await_promise=True
+            )
             # Wait for the module to publish its handle.
             for _ in range(80):
                 if page.evaluate("Boolean(window.lines && window.lines.hasNoise)"):
@@ -74,7 +82,7 @@ def main() -> int:
             page.evaluate(
                 """(() => {
                   if (!window.lines.noiseShown()) {
-                    document.getElementById('toggle-noise').click();
+                    document.querySelector('[data-role="noise-toggle"]').click();
                   }
                 })()"""
             )
@@ -91,7 +99,7 @@ def main() -> int:
                       cells.sort((a, b) => a.adjusted_pts - b.adjusted_pts);
                       const cell = pick === 'max' ? cells[cells.length - 1] : cells[0];
                       if (!window.lines.noiseShown()) {
-                        document.getElementById('toggle-noise').click();
+                        document.querySelector('[data-role="noise-toggle"]').click();
                       }
                       return window.lines.openSegment(cell).then(() => {
                         // Same zoom for both, so the bundles are comparable rather than
