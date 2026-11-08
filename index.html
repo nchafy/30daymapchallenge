@@ -4,39 +4,33 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>30 Day Map Challenge 2026</title>
-<meta name="description" content="Thirty maps for the 30 Day Map Challenge, November 2026, on one Windows XP themed base map. Every day is an icon on the desktop.">
-<link rel="stylesheet" href="/os/theme.css">
-<link rel="stylesheet" href="/os/desktop.css">
+<meta name="description" content="Thirty maps for the 30 Day Map Challenge, November 2026, on one shared base map, in a Windows XP desktop.">
+
+<!-- The shell, vendored. Three stylesheets because they have three subjects: the Luna
+     palette and controls, the desktop and taskbar, the window frame. -->
+<link rel="stylesheet" href="/vendor/webxp/theme.css">
+<link rel="stylesheet" href="/vendor/webxp/shell.css">
+<link rel="stylesheet" href="/vendor/webxp/window.css">
+
+<!-- The map layer, which is this project's own. Neither theme may leak into the other;
+     that split is a directory boundary now rather than a convention. -->
+<link rel="stylesheet" href="/lib/map.css">
+<link rel="stylesheet" href="/days/02-lines/lines.css">
 </head>
-<body class="desktop">
+<body>
 
-<h1 class="visually-hidden">30 Day Map Challenge, November 2026</h1>
-
-<ul id="icons" class="icon-grid" aria-label="The base map and the thirty days">
-  <!-- Filled by boot-desktop.mjs, which turns days/themes.mjs into OS entries via
-       apps.mjs. Without JavaScript the desktop is empty, so the one link that always
-       works is below it. -->
-</ul>
+<!-- The desktop is built in JavaScript, not written here. Windows are created and destroyed
+     at runtime, so a desktop spelled out as markup would be a picture of one and the two
+     copies would drift. -->
+<div id="webxp"></div>
 
 <noscript>
   <p class="noscript-note">
-    This desktop is drawn by a script. Without one, start at
-    <a href="/days/00-base/">the base map</a>.
+    This desktop is drawn by a script, and every map needs WebGL 2. Without either there is
+    nothing to show.
   </p>
 </noscript>
 
-<nav class="taskbar" aria-label="Open windows">
-  <button type="button" class="start" id="start" aria-expanded="false" aria-controls="start-menu">start</button>
-  <div class="task-items"></div>
-  <div class="tray"><span id="clock"></span></div>
-</nav>
-
-<div class="start-menu" id="start-menu" hidden>
-  <div class="start-menu-head">30 Day Map Challenge<small>1&ndash;30 November 2026</small></div>
-  <ol></ol>
-  <p class="start-menu-foot">Themes from 30daymapchallenge.com</p>
-</div>
-
-<script type="module" src="/boot-desktop.mjs"></script>
+<script type="module" src="/boot.mjs"></script>
 </body>
 </html>

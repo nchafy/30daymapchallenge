@@ -284,6 +284,39 @@ def expected_inflation(step_m: float, sigma_m: float) -> float:
     return sd * math.sqrt(math.pi / 2.0) * lag / step_m
 
 
+def speed_residuals(
+    speed: np.ndarray, values: np.ndarray, min_per_bin: int = 400
+) -> tuple[np.ndarray, int]:
+    """Take the speed trend out of a set of noise measurements.
+
+    Returns `(residual, n_bins)`, where residual is `values` minus the median of other
+    measurements at the same speed.
+
+    Why this exists at all: standing still is indistinguishable from bad reception, so a
+    noise measurement binned by place will light up every junction in a city unless speed
+    is controlled. A speed *band* narrows that and does not remove it -- inside a 2 to
+    5 m/s band, speed still explained 12.6% of the variance in one real export.
+
+    Non-parametric on purpose. Equal-count bins and a median, rather than a fitted line:
+    the relationship is visibly curved -- about +4.5% at 2.0 m/s falling to +1.7% at
+    4.5 -- and a straight line through that leaves structure in the residual at both ends,
+    which is exactly where the slow, built-up measurements are.
+
+    Shared by the grid and the street-segment pipelines, because two copies of a control
+    this load-bearing is how they come to disagree about what they corrected for.
+    """
+    n = values.size
+    if n < min_per_bin * 2:
+        # Too few to bin meaningfully; subtract one median and say so with n_bins = 1.
+        return values - float(np.median(values)), 1
+    n_bins = max(8, min(40, n // min_per_bin))
+    order = np.argsort(speed)
+    bin_of = np.empty(n, dtype=int)
+    bin_of[order] = np.minimum((np.arange(n) * n_bins) // n, n_bins - 1)
+    expected = np.array([np.median(values[bin_of == b]) for b in range(n_bins)])
+    return values - expected[bin_of], n_bins
+
+
 def _bessel_ie(a: float, order: int) -> float:
     """exp(-a) * I_order(a), order 0 or 1.
 

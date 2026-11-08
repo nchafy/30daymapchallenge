@@ -39,7 +39,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VIEWPORTS = {"narrow": (500, 900), "desktop": (1280, 820)}
 
 #: The map page, visited once per basemap.
-MAP_PAGE = "/days/00-base/"
+#: Program ids, not URLs. One page now: the desktop at `/`, and a day is a window opened
+#: on it. `open_program` does the boot-and-launch.
+BASE_PROGRAM = "00-base"
 BASEMAPS = ("simple", "satellite", "geography")
 
 #: How long to let tiles settle after the map reports idle. Idle means the camera stopped
@@ -66,14 +68,16 @@ OVERLAY_LAYERS = ("clicked-point", "clicked-point-halo")
 #: set by every day's module for the devtools console; reading it here costs no test hook.
 PROBE = """(() => {
   const canvas = document.querySelector('.maplibregl-canvas');
-  const status = document.getElementById('map-status');
-  const attrib = document.getElementById('map-attrib');
+  // Classes, not ids. The chrome is built per window now, so nothing in it carries a
+  // global id -- two map windows would have fought over one.
+  const status = document.querySelector('.map-status');
+  const attrib = document.querySelector('.map-attrib');
   const pressed = [...document.querySelectorAll('[data-basemap]')]
     .filter((b) => b.getAttribute('aria-pressed') === 'true')
     .map((b) => b.dataset.basemap);
   const base = window.base;
   const map = base && base.map;
-  const div = document.getElementById('map');
+  const div = document.querySelector('.map');
   const box = div ? div.getBoundingClientRect() : null;
   return {
     // Measured, not assumed. A container that collapses to 0 px high fetches every tile,
@@ -98,6 +102,50 @@ PROBE = """(() => {
   };
 })()""" % (list(OVERLAY_LAYERS),)
 
+
+
+def boot(page, base_url: str, timeout: float = 30.0) -> None:
+    """Load the desktop and wait for the shell to publish its handle.
+
+    Closes whatever autostarted. A check that opens a program wants to be the only thing
+    on the desktop, and the base map opens itself.
+    """
+    page.navigate(base_url + "/")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if page.evaluate("Boolean(window.webxp)"):
+            break
+        time.sleep(0.1)
+    else:
+        raise CDPError("the desktop never published window.webxp")
+    page.evaluate(
+        """(() => {
+          for (const win of [...window.webxp.windows]) win.close();
+        })()"""
+    )
+    time.sleep(0.3)
+
+
+def open_program(page, base_url: str, program_id: str, fresh: bool = True) -> None:
+    """Open one program and wait for its window to finish mounting.
+
+    `fresh` reboots first, which is what a check wants between sections: a program is a
+    singleton, so launching one already open only raises it and would carry the previous
+    section's state into this one.
+    """
+    if fresh:
+        boot(page, base_url)
+    # `.then(() => true)` on purpose. `launch` resolves to the XPWindow, and asking CDP to
+    # return that by value walks a graph of DOM nodes and host back-references until it
+    # gives up with "Object reference chain is too long". Nothing here wants the window
+    # object; it wants to know the mount finished.
+    page.evaluate(
+        f"window.webxp.launch({program_id!r}).then(() => true)",
+        await_promise=True,
+    )
+    # A map program returns once `createBaseMap` resolved, which is before the first tiles.
+    # `wait_for_map` handles the rest.
+    time.sleep(0.4)
 
 def wait_for_map(page, want: str | None = None, timeout: float = 45.0) -> dict:
     """Block until the map has drawn, and report what it drew.
@@ -188,7 +236,7 @@ def check_parks(page, viewport: str, out_dir: Path) -> list[str]:
         found = page.evaluate(
             """(() => {
               const map = window.base.map;
-              const div = document.getElementById('map');
+              const div = document.querySelector('.map');
               const box = div.getBoundingClientRect();
               const hits = map.queryRenderedFeatures([box.width / 2, box.height / 2]);
               return [...new Set(hits.map((f) => f.sourceLayer).filter(Boolean))];
@@ -246,7 +294,7 @@ def check_tilt(page, viewport: str, out_dir: Path) -> list[str]:
     print(f"  tilt-flat-{viewport}.png  {size // 1024} KB  pitch=0 {flat}")
 
     # Through the button, so the control is covered and not just the camera API.
-    page.evaluate("(() => { document.getElementById('map-tilt').click(); return null; })()")
+    page.evaluate("(() => { document.querySelector('[data-role=\"tilt\"]').click(); return null; })()")
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if page.evaluate("window.base.map.getPitch()") >= 12:
@@ -264,7 +312,7 @@ def check_tilt(page, viewport: str, out_dir: Path) -> list[str]:
                 "want 'visible'"
             )
     pressed = page.evaluate(
-        "document.getElementById('map-tilt').getAttribute('aria-pressed')"
+        "document.querySelector('[data-role=\"tilt\"]').getAttribute('aria-pressed')"
     )
     if pressed != "true":
         failures.append(f"tilt/{viewport}: Tilt button aria-pressed={pressed!r} while pitched")
@@ -311,7 +359,7 @@ def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
     def rose_angle():
         return page.evaluate(
             """(() => {
-              const g = document.getElementById('map-compass-rose');
+              const g = document.querySelector('[data-role=\"rose\"]');
               const m = g && /rotate\\(\\s*(-?[\\d.]+)/.exec(g.getAttribute('transform') || '');
               return m ? parseFloat(m[1]) : null;
             })()"""
@@ -329,7 +377,7 @@ def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
         failures.append(
             f"compass/{viewport}: rose at {angle} for bearing {bearing}, want {-bearing}"
         )
-    label = page.evaluate("document.getElementById('map-compass').getAttribute('aria-label')")
+    label = page.evaluate("document.querySelector('[data-role=\"compass\"]').getAttribute('aria-label')")
     if "90" not in (label or ""):
         failures.append(f"compass/{viewport}: aria-label does not carry the bearing: {label!r}")
     settle(page)
@@ -337,7 +385,7 @@ def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
     print(f"  compass-rotated-{viewport}.png  {size // 1024} KB  bearing={bearing:.0f} rose={angle}")
 
     # Clicking it faces north.
-    page.evaluate("(() => { document.getElementById('map-compass').click(); return null; })()")
+    page.evaluate("(() => { document.querySelector('[data-role=\"compass\"]').click(); return null; })()")
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
         if abs(page.evaluate("window.base.map.getBearing()")) < 0.5:
@@ -352,7 +400,7 @@ def check_compass(page, viewport: str, out_dir: Path) -> list[str]:
     print(f"  (compass click -> bearing {bearing:.1f}, rose {angle})")
 
     # Arrow keys turn the view, which is the only rotation a keyboard can reach.
-    page.evaluate("(() => { document.getElementById('map-compass').focus(); return null; })()")
+    page.evaluate("(() => { document.querySelector('[data-role=\"compass\"]').focus(); return null; })()")
     page.call(
         "Input.dispatchKeyEvent",
         type="rawKeyDown",
@@ -391,7 +439,7 @@ def check_attribution(page, viewport: str) -> list[str]:
     failures = []
     state = page.evaluate(
         """(() => {
-          const el = document.getElementById('map-attrib');
+          const el = document.querySelector('.map-attrib');
           if (!el) return { missing: true };
           const r = el.getBoundingClientRect();
           const cs = getComputedStyle(el);
@@ -431,7 +479,7 @@ def check_attribution(page, viewport: str) -> list[str]:
 
 
 #: The layers `days/02-lines/map.mjs` adds, and the page it adds them on.
-LINES_PAGE = "/days/02-lines/"
+LINES_PROGRAM = "02-lines"
 LINES_LAYERS = (
     "all",
     "all-casing",
@@ -501,232 +549,188 @@ DESKTOP_INK_SLACK = 34
 MIN_DESKTOP_PIXELS = 10_000
 
 
-def days_with_pages() -> list[str]:
+def programs_in_themes() -> list[str]:
     """The folders `days/themes.mjs` claims have a page, base map included.
 
-    Read out of the source rather than hardcoded, so this file does not have to be edited
-    every time a day is built. The point of reading it is to compare what the data file
-    says against what the desktop renders and what the server will actually serve.
+    Read out of the source rather than hardcoded, so this file does not need editing every
+    time a day is built. The point of reading it is to compare what the data file says
+    against what the desktop registers and what actually opens.
     """
     source = (REPO_ROOT / "days" / "themes.mjs").read_text()
     dirs = re.findall(r"dir:\s*'([^']+)'", source)
-    # Order does not matter here; `dict.fromkeys` just drops any accidental duplicate.
     return list(dict.fromkeys(dirs))
 
 
 def check_desktop(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
-    """The desktop: an icon per day, and the taskbar that tracks what is open.
+    """The desktop: a program per day, and a window per launch.
 
-    The taskbar is the part worth checking properly. Each day is a separate page, so
-    "which windows are open" has to survive a navigation, and the only way to know it does
-    is to navigate and look.
+    What this checks is what *this* project contributes -- that thirty-one programs are
+    registered, that the built ones open a real map and the unbuilt ones say so, and that
+    opening and closing a window keeps the taskbar honest.
+
+    What it deliberately does not check is the window manager. Dragging, resizing,
+    minimising, maximising and z-order belong to `vendor/webxp/`, which has its own
+    twenty-four checks and its own `--prove-failure`. Re-testing a vendored dependency here
+    would cost a run and tell us nothing we did not import.
     """
     failures: list[str] = []
-    expected_dirs = days_with_pages()
-
-    page.navigate(base_url + "/")
-    # Start from a known state rather than from whatever a previous run left behind.
-    page.evaluate("window.localStorage.removeItem('30dmc:open')")
-    page.navigate(base_url + "/")
+    boot(page, base_url)
 
     shape = page.evaluate(
         """(() => {
-          const icons = [...document.querySelectorAll('#icons li')];
-          const links = [...document.querySelectorAll('#icons .icon-link[href]')];
+          const d = window.webxp;
+          const icons = [...document.querySelectorAll('.desktop-icon')];
           return {
+            programs: [...d.programs.keys()],
             icons: icons.length,
-            links: links.map((a) => a.getAttribute('href')),
-            badges: [...document.querySelectorAll('#icons .icon-art[data-n]')].length,
-            tasks: document.querySelectorAll('.task-items .task-button').length,
+            iconNames: icons.map((b) => b.textContent.trim()),
+            windows: d.windows.length,
+            taskButtons: document.querySelectorAll('.task-items .task-button').length,
+            startItems: document.querySelectorAll('.start-item').length,
           };
         })()"""
     )
-    if shape["icons"] != 31:
-        failures.append(f"desktop/{viewport}: {shape['icons']} icons, want 31")
-    if shape["badges"] != 30:
+
+    want = 31
+    if len(shape["programs"]) != want:
         failures.append(
-            f"desktop/{viewport}: {shape['badges']} numbered icons, want 30 "
-            f"(the base map is the one without a number)"
+            f"desktop/{viewport}: {len(shape['programs'])} programs registered, want {want} "
+            f"(the base map and thirty days)"
+        )
+    if shape["icons"] != want:
+        failures.append(f"desktop/{viewport}: {shape['icons']} desktop icons, want {want}")
+    if shape["startItems"] != want:
+        failures.append(
+            f"desktop/{viewport}: {shape['startItems']} Start menu rows, want {want}"
+        )
+    if shape["windows"] != 0 or shape["taskButtons"] != 0:
+        failures.append(
+            f"desktop/{viewport}: boot left {shape['windows']} window(s) and "
+            f"{shape['taskButtons']} taskbar button(s); the checks need a clear desktop"
         )
 
-    got_dirs = [href.strip("/").split("/")[-1] for href in shape["links"]]
-    if sorted(got_dirs) != sorted(expected_dirs):
+    # Every built day must be registered under the id `themes.mjs` gives it. A mismatch
+    # shows up as a day that opens a "not built yet" window while its program sits unused,
+    # which looks like an unwritten day rather than a wiring mistake.
+    declared = programs_in_themes()
+    missing = [d for d in declared if d not in shape["programs"]]
+    if missing:
         failures.append(
-            f"desktop/{viewport}: the desktop links {sorted(got_dirs)} but days.mjs "
-            f"says {sorted(expected_dirs)}"
-        )
-    if shape["tasks"] != 0:
-        failures.append(
-            f"desktop/{viewport}: {shape['tasks']} taskbar buttons with nothing opened"
+            f"desktop/{viewport}: themes.mjs declares {missing} but no program has that id"
         )
 
-    # Every icon that is a link must lead somewhere the server will serve. This is the
-    # dead-target case `days.mjs` warns about: a `dir` set to a folder that was never
-    # created renders as a perfectly ordinary icon.
-    for href in shape["links"]:
-        try:
-            with urllib.request.urlopen(base_url + href, timeout=10) as response:
-                if response.status != 200:
-                    failures.append(
-                        f"desktop/{viewport}: {href} answered {response.status}"
-                    )
-        except OSError as error:
-            failures.append(f"desktop/{viewport}: {href} is a dead icon ({error})")
-
-    # Opening a day from its icon must put a button in the bar, and the button must say it
-    # is the one in front.
-    #
-    # Returning early rather than indexing blind: if `index.mjs` threw before rendering,
-    # there are no links, and an IndexError here would take the whole run down with a
-    # traceback -- discarding the icon-count and dead-link failures already collected,
-    # which are the ones that would name the real problem.
-    if not shape["links"]:
-        failures.append(
-            f"desktop/{viewport}: no icon is a link, so the taskbar cannot be checked"
-        )
-        return failures
-    first = shape["links"][0]
-    page.evaluate(
-        f"document.querySelector('#icons .icon-link[href=\"{first}\"]').click()"
+    # A built day opens a map. An unbuilt one opens a window that says so.
+    built = [d for d in declared if d != "00-base"] or ["02-lines"]
+    probe = built[0]
+    opened = page.evaluate(
+        f"""(() => window.webxp.launch({probe!r}).then(() => {{
+              const win = window.webxp.windows[window.webxp.windows.length - 1];
+              return {{
+                windows: window.webxp.windows.length,
+                taskButtons: document.querySelectorAll('.task-items .task-button').length,
+                title: win ? win.titleText : null,
+                hasFrame: Boolean(document.querySelector('.map-frame')),
+                hasAttrib: Boolean(document.querySelector('.map-attrib')),
+              }};
+            }}))()""",
+        await_promise=True,
     )
-    page.wait_for("Page.loadEventFired", timeout=30)
-    opened_one = page.evaluate(
+    if opened["windows"] != 1 or opened["taskButtons"] != 1:
+        failures.append(
+            f"desktop/{viewport}: launching {probe} gave {opened['windows']} window(s) and "
+            f"{opened['taskButtons']} taskbar button(s); want 1 and 1"
+        )
+    if not opened["hasFrame"]:
+        failures.append(f"desktop/{viewport}: {probe} opened without a map frame")
+    if not opened["hasAttrib"]:
+        failures.append(
+            f"desktop/{viewport}: {probe} opened with no credit element. Attribution is a "
+            f"licence term for all three basemap sources."
+        )
+
+    # An unbuilt day: a window, a message, and no map.
+    placeholder = page.evaluate(
         """(() => {
-          const buttons = [...document.querySelectorAll('.task-items .task-button')];
-          return {
-            count: buttons.length,
-            current: buttons.filter((b) => b.dataset.current).length,
-          };
-        })()"""
+          const id = [...window.webxp.programs.keys()].find((k) => k.startsWith('day-'));
+          if (!id) return { skipped: true };
+          return window.webxp.launch(id).then(() => {
+            const win = window.webxp.windows[window.webxp.windows.length - 1];
+            const body = win ? win.bodyEl.textContent : '';
+            return {
+              id,
+              title: win ? win.titleText : null,
+              saysSo: /not built yet/i.test(body),
+              frames: document.querySelectorAll('.map-frame').length,
+            };
+          });
+        })()""",
+        await_promise=True,
     )
-    if opened_one["count"] != 1 or opened_one["current"] != 1:
+    if placeholder.get("skipped"):
+        failures.append(f"desktop/{viewport}: no unbuilt day is registered to check")
+    else:
+        if not placeholder["saysSo"]:
+            failures.append(
+                f"desktop/{viewport}: {placeholder['id']} opened a window that does not say "
+                f"it is unbuilt"
+            )
+        if placeholder["frames"] != 1:
+            failures.append(
+                f"desktop/{viewport}: {placeholder['frames']} map frame(s) after opening an "
+                f"unbuilt day, want 1 -- the placeholder must not build a map"
+            )
+
+    # Closing a window takes its taskbar button with it.
+    closed = page.evaluate(
+        """(() => {
+          const before = window.webxp.windows.length;
+          window.webxp.windows[window.webxp.windows.length - 1].close();
+          return new Promise((r) => setTimeout(() => r({
+            before,
+            after: window.webxp.windows.length,
+            taskButtons: document.querySelectorAll('.task-items .task-button').length,
+          }), 400));
+        })()""",
+        await_promise=True,
+    )
+    if closed["after"] != closed["before"] - 1:
         failures.append(
-            f"desktop/{viewport}: opening {first} gave {opened_one['count']} button(s), "
-            f"{opened_one['current']} marked current; want 1 and 1"
+            f"desktop/{viewport}: closing a window left {closed['after']} of "
+            f"{closed['before']}"
         )
-
-    # A second day, reached directly rather than through an icon, must also register --
-    # the list is the page's own doing, not the desktop's.
-    second = next((h for h in shape["links"] if h != first), None)
-    if second:
-        page.navigate(base_url + second)
-        opened_two = page.evaluate(
-            """(() => {
-              const buttons = [...document.querySelectorAll('.task-items .task-button')];
-              return {
-                count: buttons.length,
-                current: buttons.filter((b) => b.dataset.current).length,
-              };
-            })()"""
+    if closed["taskButtons"] != closed["after"]:
+        failures.append(
+            f"desktop/{viewport}: {closed['taskButtons']} taskbar button(s) for "
+            f"{closed['after']} window(s)"
         )
-        if opened_two["count"] != 2 or opened_two["current"] != 1:
-            failures.append(
-                f"desktop/{viewport}: with two days open there are "
-                f"{opened_two['count']} button(s) and {opened_two['current']} current; "
-                f"want 2 and 1"
-            )
-
-        # Back on the desktop both windows stay open, and neither is in front.
-        page.navigate(base_url + "/")
-        back = page.evaluate(
-            """(() => {
-              const buttons = [...document.querySelectorAll('.task-items .task-button')];
-              return {
-                count: buttons.length,
-                current: buttons.filter((b) => b.dataset.current).length,
-              };
-            })()"""
-        )
-        if back["count"] != 2:
-            failures.append(
-                f"desktop/{viewport}: {back['count']} button(s) after returning to the "
-                f"desktop, want 2 -- the open list did not survive the navigation"
-            )
-        if back["current"] != 0:
-            failures.append(
-                f"desktop/{viewport}: the desktop marks {back['current']} window as "
-                f"current; it is not one of them"
-            )
-
-        # And the close box on a button really closes that window.
-        # The dir, not the label. Comparing the button's *text* against the stored
-        # *folder names* is a check that cannot fail: 'Base map' is never a substring of
-        # '["00-base","02-lines"]', so the branch below was unreachable. The bug it is
-        # meant to catch is real -- if `write()` has fallen back to memory, `closeWindow`
-        # drops the entry from memory and leaves it in localStorage, the DOM rerenders
-        # correctly from `read()`, and only the stored value shows that it will come back
-        # on the next reload.
-        closed = page.evaluate(
-            r"""(() => {
-              const dirOf = (node) => {
-                const href = node.querySelector('.task-label').getAttribute('href');
-                return href.replace(/\/+$/, '').split('/').pop();
-              };
-              const first = document.querySelector('.task-items .task-button');
-              const dir = dirOf(first);
-              const label = first.querySelector('.task-label').textContent.trim();
-              first.querySelector('.task-close').click();
-              const left = [...document.querySelectorAll('.task-items .task-button')];
-              let stored = null;
-              try { stored = JSON.parse(window.localStorage.getItem('30dmc:open') || '[]'); }
-              catch { stored = 'unparseable'; }
-              return {
-                closed: dir,
-                label,
-                count: left.length,
-                dirs: left.map(dirOf),
-                stored,
-              };
-            })()"""
-        )
-        if closed["count"] != 1:
-            failures.append(
-                f"desktop/{viewport}: closing one of two windows left "
-                f"{closed['count']}, want 1"
-            )
-        elif closed["closed"] in closed["dirs"]:
-            failures.append(
-                f"desktop/{viewport}: closed {closed['closed']!r} and it is still in the bar"
-            )
-        elif closed["stored"] == "unparseable":
-            failures.append(
-                f"desktop/{viewport}: the open-window list in localStorage is not valid JSON"
-            )
-        elif closed["closed"] in closed["stored"]:
-            failures.append(
-                f"desktop/{viewport}: closed {closed['closed']!r} but it is still in "
-                f"localStorage {closed['stored']}, so it comes back on reload"
-            )
-        else:
-            print(
-                f"  (opened two, closed {closed['label']!r} -> {closed['closed']}, "
-                f"{closed['count']} left, stored {closed['stored']})"
-            )
-
-    # The wallpaper is CSS, so nothing fails loudly if it stops drawing.
-    shot = out_dir / f"desktop-{viewport}.png"
-    counts = count_pixels(
-        page, shot, DESKTOP_INKS, DESKTOP_INK_SLACK, exclude=DESKTOP_EXCLUDE
-    )
-    for name in DESKTOP_INKS:
-        if counts[name] < MIN_DESKTOP_PIXELS:
-            failures.append(
-                f"desktop/{viewport}: the {name} covers {counts[name]} pixels, want at "
-                f"least {MIN_DESKTOP_PIXELS}. The wallpaper is not drawing."
-            )
 
     failures += [f"desktop/{viewport}: {e}" for e in console_errors(page)]
+    shot = out_dir / f"desktop-{viewport}.png"
+    size = shoot(page, shot)
     print(
-        f"  desktop-{viewport}.png  {shot.stat().st_size // 1024} KB  "
-        f"icons={shape['icons']} links={len(shape['links'])} "
-        f"px sky={counts['sky']} hill={counts['hill']}"
+        f"  desktop-{viewport}.png  {size // 1024} KB  "
+        f"{len(shape['programs'])} programs, {shape['icons']} icons, "
+        f"opened {probe!r} then an unbuilt day, closed one"
     )
     return failures
 
 
 #: Where each pixel count measures, and what it skips inside that region. Written as
 #: selectors so the rectangles come from the live layout rather than from constants here.
-LINE_REGION = "#map"
+LINE_REGION = ".map"
+LINE_EXCLUDE = ".overlays > *, .map-zoom, .detail, .map-attrib"
+#: The wallpaper fills the viewport, so the region is everything -- minus the taskbar,
+#: which is the whole reason this is a parameter. Luna's bar is a blue gradient whose top
+#: stop is #3f8cf3 and whose window buttons start at #4a90f0; both sit inside the slack
+#: for the sky's #3f93dd. Counting them made the sky check unfailable at 1280x820: with
+#: the wallpaper removed entirely it still found 3,087 "sky" pixels, over the threshold.
+DESKTOP_EXCLUDE = ".taskbar"
+
+
+#: The conformance fixture: a stand-in for a host site that is not this one.
+#: Where each pixel count measures, and what it skips inside that region. Written as
+#: selectors so the rectangles come from the live layout rather than from constants here.
+LINE_REGION = ".map"
 LINE_EXCLUDE = ".overlays > *, .map-zoom, .detail, .map-attrib"
 #: The wallpaper fills the viewport, so the region is everything -- minus the taskbar,
 #: which is the whole reason this is a parameter. Luna's bar is a blue gradient whose top
@@ -739,189 +743,6 @@ DESKTOP_EXCLUDE = ".taskbar"
 #: The conformance fixture: a stand-in for a host site that is not this one.
 OS_PAGE = "/os/conformance.html"
 
-#: Directories `os/` is allowed to import from. Itself, and nothing else.
-#:
-#: This is the whole point of the split, so it is a check rather than an intention. The
-#: shell used to import this project's day catalogue in three separate modules, which made
-#: it unusable by anything else and made that catalogue a required file for any page that
-#: wanted only the clock.
-OS_IMPORT_ALLOWED = ("./", "../os/")
-
-
-def check_os_independent() -> list[str]:
-    """`os/` must not import the site it is drawing.
-
-    Static, not browser-driven: an import that only fires on one page would otherwise pass
-    every run until someone visited that page.
-    """
-    failures: list[str] = []
-    os_dir = REPO_ROOT / "os"
-    for path in sorted(os_dir.glob("*.mjs")):
-        for n, line in enumerate(path.read_text().splitlines(), 1):
-            stripped = line.strip()
-            if not stripped.startswith(("import ", "export ")):
-                continue
-            match = re.search(r"from\s+'([^']+)'", stripped)
-            if not match:
-                continue
-            target = match.group(1)
-            if not target.startswith("."):
-                # A bare specifier would need a bundler or an import map; neither exists.
-                failures.append(f"os/{path.name}:{n}: bare import {target!r}")
-                continue
-            if not target.startswith(OS_IMPORT_ALLOWED):
-                failures.append(
-                    f"os/{path.name}:{n}: imports {target!r} from outside os/. The shell "
-                    f"must take its entries as arguments, not import a catalogue."
-                )
-    if not failures:
-        count = len(list(os_dir.glob("*.mjs")))
-        print(f"  (os/ is self-contained: {count} modules, no imports outside os/)")
-    return failures
-
-
-def check_os_conformance(page, viewport: str, base_url: str) -> list[str]:
-    """A foreign host can mount the shell without losing its own markup.
-
-    `os/conformance.html` server-renders two taskbar buttons and calls `mountShell()` with
-    no entries and no menu. The buttons must still be there afterwards.
-
-    This is a regression test for a reported defect, not a hypothetical: `mountChrome`
-    called `renderTaskbar` unconditionally, `renderTaskbar` cleared the container when the
-    open list was empty, and the open list was filtered against this project's own day
-    catalogue -- so for any other host the list was always empty and the bar was always
-    erased.
-    """
-    failures: list[str] = []
-    page.navigate(base_url + OS_PAGE)
-    time.sleep(0.8)
-
-    state = page.evaluate(
-        """(() => {
-          const items = document.querySelector('.task-items');
-          const buttons = [...items.querySelectorAll('.task-button')];
-          return {
-            buttons: buttons.length,
-            labels: buttons.map((b) => b.textContent.trim()),
-            clock: (document.getElementById('clock') || {}).textContent || '',
-            menuRows: document.querySelectorAll('#start-menu ol li').length,
-            panel: Boolean(window.conformance && window.conformance.panel),
-          };
-        })()"""
-    )
-
-    if state["buttons"] != 2:
-        failures.append(
-            f"os/{viewport}: mountShell() with no entries left {state['buttons']} of the "
-            f"host's 2 taskbar buttons. It must not touch a bar it was not given entries for."
-        )
-    elif state["labels"] != ["Host page one", "Host page two"]:
-        failures.append(f"os/{viewport}: the host's taskbar labels changed: {state['labels']}")
-    if state["menuRows"] != 0:
-        failures.append(
-            f"os/{viewport}: the Start menu gained {state['menuRows']} row(s) without being "
-            f"passed any entries"
-        )
-    if not state["clock"].strip():
-        failures.append(f"os/{viewport}: the clock did not start, so the shell did not mount")
-    if not state["panel"]:
-        failures.append(f"os/{viewport}: no panel was built for the host")
-
-    failures += [f"os/{viewport}: {e}" for e in console_errors(page)]
-    if not failures:
-        print(
-            f"  (a foreign host kept its {state['buttons']} taskbar buttons, "
-            f"clock reads {state['clock'].strip()!r}, menu untouched)"
-        )
-    return failures
-
-
-#: The CSP fixture, and the colour of the art it supplies as a node.
-OS_CSP_PAGE = "/os/conformance-csp.html"
-OS_CSP_INK = {"node-art": (0xFF, 0xCC, 0x00)}
-OS_CSP_SLACK = 40
-#: Measured at 396 px for a 32px icon by `scripts/measure_csp.py`; 150 leaves room for
-#: the art changing shape without letting a blank box through.
-MIN_CSP_ICON_PIXELS = 150
-
-
-def check_os_csp(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
-    """A host under a strict Content-Security-Policy can still draw its icons.
-
-    `os/desktop.css` draws icon art as `data:image/svg+xml` in a `background-image`, and
-    CSP's `img-src` governs images loaded from CSS -- so under `img-src 'self'` with no
-    `data:` that art is refused. Measured, not assumed: the element is present, its
-    computed `background-image` is correct, and the box paints zero pixels.
-
-    So an entry may carry its own Node instead, and that is the thing this check protects.
-    The stylesheet's own count is printed rather than asserted: pinning it to zero would
-    be a check that the limitation still exists, and if someone later makes that art
-    policy-safe the right outcome is a passing run, not a failure.
-    """
-    failures: list[str] = []
-    page.navigate(base_url + OS_CSP_PAGE)
-    time.sleep(1.0)
-
-    boxes = page.evaluate("window.cspFixture ? window.cspFixture.boxes() : null")
-    if not boxes:
-        failures.append(f"os-csp/{viewport}: the fixture did not run")
-        return failures
-
-    shot = out_dir / f"csp-icons-{viewport}.png"
-    counts = count_pixels(page, shot, OS_CSP_INK, OS_CSP_SLACK)
-
-    node = next((b for b in boxes if b["art"] == "node"), None)
-    css = next((b for b in boxes if b["art"] is None), None)
-
-    if node is None:
-        failures.append(
-            f"os-csp/{viewport}: no icon rendered from a node, so the escape hatch for a "
-            f"host under a strict policy is gone"
-        )
-    else:
-        if node["svgChildren"] != 1:
-            failures.append(
-                f"os-csp/{viewport}: the node icon has {node['svgChildren']} svg children, want 1"
-            )
-        if node["backgroundImage"]:
-            failures.append(
-                f"os-csp/{viewport}: the node icon still has a background-image behind it, "
-                f"so the stylesheet is painting over or under the host's art"
-            )
-        if counts["node-art"] < MIN_CSP_ICON_PIXELS:
-            failures.append(
-                f"os-csp/{viewport}: the node icon painted {counts['node-art']} pixels "
-                f"under `img-src 'self'`, want at least {MIN_CSP_ICON_PIXELS}"
-            )
-
-    if not failures:
-        print(
-            f"  (under img-src 'self': node art paints {counts['node-art']} px; "
-            f"stylesheet art computes "
-            f"{'a background' if css and css['backgroundImage'] else 'nothing'} and is blocked)"
-        )
-    return failures
-
-
-#: The choropleth's layers and its validated ramp.
-NOISE_LAYERS = ("noise-casing", "noise-selected", "noise")
-#: Every step of the diverging ramp in `days/02-lines/map.mjs`. Counted together: which
-#: classes are on screen depends on where the camera is, so the assertion is that the
-#: choropleth paints, not that a particular class does.
-NOISE_RAMP_INKS = {
-    "cells": (0x2A, 0x78, 0xD6),
-    "cells-b": (0x55, 0x98, 0xE7),
-    "cells-c": (0x9E, 0xC5, 0xF4),
-    "cells-d": (0xD6, 0x45, 0x3F),
-    "cells-e": (0xEF, 0x6A, 0x5E),
-    "cells-f": (0xF9, 0xA7, 0x9C),
-}
-NOISE_INK_SLACK = 26
-MIN_NOISE_PIXELS = 400
-#: Classes in the legend, which must equal the ramp length in map.mjs.
-NOISE_LEGEND_ROWS = 7
-
-
 def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     """The noise choropleth, and the segment -> crossings -> run drill-down.
 
@@ -930,7 +751,7 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     both failing and silently passing.
     """
     failures: list[str] = []
-    page.navigate(base_url + LINES_PAGE)
+    open_program(page, base_url, LINES_PROGRAM)
     wait_for_map(page)
     settle(page)
 
@@ -939,8 +760,8 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
              hasNoise: window.lines.hasNoise(),
              cells: window.lines.noiseCells(),
              legend: window.lines.legendRows().length,
-             disabled: document.getElementById('toggle-noise').disabled,
-             note: (document.getElementById('noise-note') || {}).textContent || '',
+             disabled: document.querySelector('[data-role=\"noise-toggle\"]').disabled,
+             note: (document.querySelector('[data-role=\"noise-note\"]') || {}).textContent || '',
            }))()"""
     )
     if present["legend"] != NOISE_LEGEND_ROWS:
@@ -976,7 +797,7 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
             map.once('idle', () => { clearTimeout(timer); resolve(); });
           });
           return (async () => {
-            document.getElementById('toggle-noise').click();
+            document.querySelector('[data-role=\"noise-toggle\"]').click();
             // The toggle also moves the camera to where the cells are, so waiting once is
             // not enough -- counting mid-flight photographed an empty corner of the map and
             // reported the layer as not painting.
@@ -987,7 +808,7 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
               visible: %s.filter((id) => map.getLayer(id)
                 && map.getLayoutProperty(id, 'visibility') === 'visible'),
               rendered: map.queryRenderedFeatures({ layers: ['noise'] }).length,
-              legendHidden: document.getElementById('noise-legend').hidden,
+              legendHidden: document.querySelector('[data-role=\"noise-legend\"]').hidden,
             };
           })();
         })()"""
@@ -1028,7 +849,7 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
           return window.lines.openSegment(cell)
             .then(() => new Promise((r) => map.once('idle', r)))
             .then(() => {
-              const detail = document.getElementById('detail');
+              const detail = document.querySelector('.detail');
               return {
                 ok: true,
                 cellId: cell.id,
@@ -1083,12 +904,12 @@ def check_noise(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
           return window.lines.showPass(cell.passes[0], cell)
             .then(() => new Promise((r) => map.once('idle', r)))
             .then(() => {
-            const detail = document.getElementById('detail');
+            const detail = document.querySelector('.detail');
             return {
               span: window.lines.passSpan(),
               selectedRun: window.lines.selectedId(),
               drawn: map.queryRenderedFeatures({ layers: ['pass'] }).length,
-              sliderOff: document.getElementById('tolerance').disabled,
+              sliderOff: document.querySelector('[data-role=\"tolerance\"]').disabled,
               back: detail.querySelectorAll('.pass-row').length,
               ghostsStill: map.queryRenderedFeatures({ layers: ['ghosts'] }).length,
             };
@@ -1234,7 +1055,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     rounding, and on the lengths.
     """
     failures: list[str] = []
-    page.navigate(base_url + LINES_PAGE)
+    open_program(page, base_url, LINES_PROGRAM)
     wait_for_map(page)
     settle(page)
 
@@ -1244,7 +1065,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
           const present = %s.filter((id) => Boolean(map.getLayer(id)));
           const rendered = (id) => (map.getLayer(id)
             ? map.queryRenderedFeatures({ layers: [id] }).length : 0);
-          const slider = document.getElementById('tolerance');
+          const slider = document.querySelector('[data-role=\"tolerance\"]');
           return {
             present,
             all: rendered('all'),
@@ -1254,10 +1075,10 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
             dataDir: window.lines ? window.lines.dataDir() : null,
             floor: window.lines ? window.lines.overviewFloor() : null,
             aggregate: window.lines ? window.lines.aggregate() : null,
-            aggregateText: (document.getElementById('aggregate') || {}).textContent || '',
+            aggregateText: (document.querySelector('[data-role=\"aggregate\"]') || {}).textContent || '',
             sliderDisabled: slider ? slider.disabled : null,
             selected: window.lines ? window.lines.selectedId() : 'no api',
-            status: (document.getElementById('map-status') || {}).textContent || '',
+            status: (document.querySelector('.map-status') || {}).textContent || '',
           };
         })()"""
         % (list(LINES_LAYERS),)
@@ -1318,13 +1139,13 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     chosen = page.evaluate(
         """(() => window.lines.select(window.lines.activities()[0]).then(() => {
              const map = window.base.map;
-             const slider = document.getElementById('tolerance');
+             const slider = document.querySelector('[data-role=\"tolerance\"]');
              return {
                id: window.lines.selectedId(),
                disabled: slider.disabled,
                focus: map.queryRenderedFeatures({ layers: ['focus'] }).length,
                rungs: (window.lines.writtenLadder() || []).length,
-               readout: (document.getElementById('readout') || {}).textContent || '',
+               readout: (document.querySelector('[data-role=\"readout\"]') || {}).textContent || '',
              };
            }))()""",
         await_promise=True,
@@ -1397,7 +1218,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     # Simplifying must shorten the selected run, and the page must say so.
     moved = page.evaluate(
         """(() => {
-          const slider = document.getElementById('tolerance');
+          const slider = document.querySelector('[data-role=\"tolerance\"]');
           const before = window.lines.focusLengthAt(0);
           slider.value = '%s';
           slider.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1406,7 +1227,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
               before,
               after: window.lines.focusLengthAt(%s),
               tolerance: window.lines.tolerance,
-              out: (document.getElementById('tolerance-out') || {}).textContent || '',
+              out: (document.querySelector('[data-role=\"tolerance-out\"]') || {}).textContent || '',
               rendered: window.base.map.queryRenderedFeatures({ layers: ['focus'] }).length,
             });
           })));
@@ -1439,7 +1260,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
     # false pass.
     toggled = page.evaluate(
         """(() => {
-          const button = document.getElementById('toggle-matched');
+          const button = document.querySelector('[data-role=\"toggle-matched\"]');
           const map = window.base.map;
           const idle = () => new Promise((r) => map.once('idle', r));
           return (async () => {
@@ -1523,7 +1344,7 @@ def check_lines(page, viewport: str, out_dir: Path, base_url: str) -> list[str]:
         time.sleep(1.4)
         opened = page.evaluate(
             """(() => {
-              const detail = document.getElementById('detail');
+              const detail = document.querySelector('.detail');
               const open = Boolean(detail && !detail.hidden);
               return {
                 open,
@@ -1747,8 +1568,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{marker} is not being served ({error})", file=sys.stderr)
             return 1
 
-        # Static, before a browser is started: nothing here needs one.
-        failures += check_os_independent()
 
         with Browser() as browser:
             for viewport, (width, height) in VIEWPORTS.items():
@@ -1769,9 +1588,11 @@ def main(argv: list[str] | None = None) -> int:
                 # The remembered basemap is cleared first, so every run starts from the
                 # documented default rather than from whatever the last run chose. The
                 # persistence itself is checked at the end.
-                page.navigate(base + MAP_PAGE)
+                # The remembered basemap is cleared first, so every run starts from the
+                # documented default rather than from whatever the last run chose.
+                boot(page, base)
                 page.evaluate("window.localStorage.clear()")
-                page.navigate(base + MAP_PAGE)
+                open_program(page, base, BASE_PROGRAM)
                 state = wait_for_map(page, "simple")
 
                 # With nothing selected, before the panel is ever opened.
@@ -1831,7 +1652,7 @@ def main(argv: list[str] | None = None) -> int:
                     "document.querySelector('[data-basemap=\"geography\"]').click()"
                 )
                 wait_for_map(page, "geography")
-                page.navigate(base + MAP_PAGE)
+                open_program(page, base, BASE_PROGRAM)
                 reloaded = wait_for_map(page, "geography")
                 if reloaded["basemap"] != "geography":
                     failures.append(
@@ -1844,7 +1665,7 @@ def main(argv: list[str] | None = None) -> int:
                 time.sleep(0.6)
                 opened = page.evaluate(
                     """(() => {
-                      const detail = document.getElementById('detail');
+                      const detail = document.querySelector('.detail');
                       return {
                         open: Boolean(detail && !detail.hidden),
                         title: detail ? detail.querySelector('h2').textContent : '',
@@ -1875,9 +1696,6 @@ def main(argv: list[str] | None = None) -> int:
 
                 failures += check_noise(page, viewport, out_dir, base)
 
-                # The shell, mounted the way a site that is not this one would.
-                failures += check_os_conformance(page, viewport, base)
-                failures += check_os_csp(page, viewport, out_dir, base)
     finally:
         server.terminate()
         try:

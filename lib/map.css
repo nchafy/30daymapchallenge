@@ -1,0 +1,332 @@
+/* The map layer's own styling.
+ *
+ * webxp owns the Luna chrome -- the window frame, the taskbar, the Start menu, the cards,
+ * the group boxes, the tables -- in `vendor/webxp/`. This file is everything that was never
+ * chrome: the map container, the controls that sit over it, the MapLibre overrides, and the
+ * detail panel.
+ *
+ * `CLAUDE.md` requires the two themes not to leak into each other. That split is now a
+ * directory boundary rather than a convention: a Luna colour cannot appear here without
+ * being written out by hand, and nothing here is loaded by a page that only wants the
+ * shell.
+ */
+
+/* ---------------------------------------------------------------------------
+   The frame a map mounts into.
+
+   A column: the map area, then the credit. `lib/basemap.mjs` builds it.
+   --------------------------------------------------------------------------- */
+
+.map-frame {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The map and everything floating over it. The credit is deliberately outside this, so
+   nothing in here can reach it. */
+.map-area {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* `.map-area > .map` is specificity, not tidiness.
+
+   MapLibre puts `maplibregl-map` on the container and sets `position: relative`. A bare
+   `.map` ties on specificity and loses on source order, `inset: 0` stops applying, and the
+   container collapses to 0 px — every tile fetches 200 and draws nowhere, with no error.
+   The child selector wins outright.
+
+   This rule was `.window-body > .map` while a day was a page. It MUST keep a parent in the
+   selector; dropping back to `.map` re-creates the collapse. */
+.map-area > .map {
+  position: absolute;
+  inset: 0;
+}
+
+.map { background: #e8e0d8; }
+
+/* Floating chrome. The container ignores the pointer so clicks reach the canvas; each
+   child takes it back. */
+.overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  padding: .5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .5rem;
+  /* The column scrolls rather than running off the bottom.
+
+     A full-page map could assume more height than its controls needed. A window cannot: at
+     600px tall the three cards of day 2 reached the floor, sat on top of the zoom pair, and
+     left nothing to look at. `min-height: 0` is what lets a flex child actually scroll. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* The scroll container covers the map, so give the pointer back where there is no card.
+     `.overlays > *` takes it again for each card. */
+  scrollbar-gutter: stable;
+}
+
+/* Narrower than a page's cards. A window is the width the reader chose, and a control
+   column that takes two thirds of it is not a control column. */
+.overlays .card { max-width: 15rem; }
+
+.overlays > * { pointer-events: auto; }
+
+/* The basemap switcher. A radio group wearing tab clothes: exactly one basemap shows, so
+   the pressed state is the whole answer and `aria-pressed` carries it. */
+.layer-switch { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.layer-switch button[aria-pressed="true"] {
+  background: linear-gradient(to bottom, var(--title-b), var(--title-a));
+  border-color: #0a1a4a;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
+}
+
+/* The tilt control. Pressed means the camera is leaning, which the map sets — not the
+   button — so dragging to an angle lights it up too. */
+.tilt-row { display: flex; align-items: center; gap: .45rem; margin-top: .4rem; }
+
+.tilt-row button[aria-pressed="true"] {
+  background: linear-gradient(to bottom, var(--title-b), var(--title-a));
+  border-color: #0a1a4a;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 35%);
+}
+
+.tilt-note { font-size: 10px; color: var(--muted); }
+
+/* Zoom buttons, bottom-left over the canvas: a map control belongs on the map. */
+/* Bottom right, not bottom left.
+
+   Left is where the control cards live, and in a window tall enough for neither to be
+   obviously wrong they overlapped: the zoom pair and the compass sat underneath the
+   cards, unreachable. Opposite corners cannot collide however short the window gets. */
+.map-zoom {
+  position: absolute;
+  right: .5rem;
+  bottom: .5rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A text button's line box is taller than its glyph, so centring the box does not centre
+   what is drawn. Grid places the glyph itself. */
+.map-zoom button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* The compass sits a little apart and a little larger than the zoom pair: it answers "which
+   way is up", not "how close am I", and at 28px the needle was too small to read an angle
+   off at a glance. 40px, which is also a comfortable drag-free tap target. */
+#map-compass {
+  width: 40px;
+  height: 40px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+
+#map-compass svg { display: block; width: 34px; height: 34px; }
+
+#map-compass[hidden] { display: none; }
+
+/* The basemap credit, and the last row of the frame.
+
+   A licence term for all three sources. `flex: 0 0 auto` because this is now a row of a
+   column rather than a child of a horizontal status bar: `1 1 auto` here would let the
+   credit grow into the space the map wants.
+
+   MUST NOT be moved back over the canvas, hidden, truncated at any viewport, or made
+   dismissable. It floated at bottom-right once, which is exactly where the detail panel
+   docks one layer above, so the credit disappeared whenever anything was selected and
+   nothing caught it for a day. */
+.map-attrib {
+  margin: 0;
+  flex: 0 0 auto;
+  padding: 1px .4rem;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ink);
+  /* The sunken panel: dark top-left edge against a light bottom-right one, the inverse of
+     a raised control. */
+  border: 1px solid var(--sunk);
+  border-right-color: var(--raised);
+  border-bottom-color: var(--raised);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-attrib a { color: var(--accent); }
+
+/* Below this the credit needs its full height rather than one ellipsised line: on a phone
+   the Esri and OpenTopoMap strings are three lines, and truncating a licence term is the
+   thing this whole block exists to avoid. */
+@media (max-width: 34rem) {
+  .map-attrib { white-space: normal; overflow: visible; }
+}
+
+/* The live region that narrates state changes. Visible, because a status line is also how
+   a sighted reader learns the basemap changed or failed.
+
+   A flex child of `.overlays`, not absolutely positioned. It used to sit above the zoom
+   stack at a hand-computed offset, which the compass promptly broke by making that stack
+   40 px taller — the message landed on top of the buttons. Stacking it under the control
+   card instead costs no arithmetic and cannot collide with a control again. */
+.map-status {
+  margin: 0;
+  padding: .15rem .45rem;
+  max-width: min(26rem, calc(100vw - 1.5rem));
+  font-size: 11px;
+  background: var(--attrib-bg);
+  border: 1px solid var(--rule);
+}
+
+.map-status:empty { display: none; }
+
+/* ---------------------------------------------------------------------------
+   The detail panel. Docked right on a wide viewport, a bottom sheet on a phone.
+   --------------------------------------------------------------------------- */
+.detail {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(25rem, 42vw);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  background: var(--face);
+  border-left: 1px solid var(--title-a);
+  box-shadow: -3px 0 8px rgb(0 0 0 / 25%);
+  transform: translateX(100%);
+  transition: transform 220ms ease-out;
+}
+
+.detail.is-open { transform: translateX(0); }
+
+.detail[hidden] { display: none; }
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex: 0 0 auto;
+  padding: .3rem .25rem .3rem .6rem;
+  /* Flat, not a gradient: a gradient across a 28px bar bands visibly and reads as an
+     artifact rather than as chrome. */
+  background: var(--title-a);
+  border-bottom: 1px solid #06143c;
+}
+
+.detail-head h2 {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 45%);
+}
+
+.detail-body { flex: 1 1 auto; overflow-y: auto; padding: .6rem; }
+
+.detail-foot {
+  flex: 0 0 auto;
+  padding: .45rem .6rem;
+  border-top: 1px solid var(--sunk);
+  background: var(--face);
+  font-size: 11px;
+}
+
+.detail-foot:empty { display: none; }
+
+@media (max-width: 52rem) {
+  .detail {
+    top: auto;
+    width: auto;
+    left: 0;
+    max-height: 48%;
+    border-left: 0;
+    border-top: 1px solid var(--title-a);
+    transform: translateY(100%);
+  }
+  .detail.is-open { transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* WCAG 2.3.3. */
+  .detail, .detail.is-open { transition: none; }
+}
+
+/* Below this a three-column table stops fitting the panel, so every table collapses to
+   stacked rows: the header row is dropped and each cell is labelled by its `data-label`.
+   `attr()` keeps the label in the stylesheet, where a strict `style-src` can reach it. */
+@media (max-width: 26rem) {
+  .group-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .group-table tbody tr { display: block; padding: .3rem 0; }
+  .group-table tbody tr + tr { border-top: 1px solid var(--rule); }
+  .group-table tbody th, .group-table tbody td { display: block; border-top: 0; padding: 0 0 .1rem; }
+  .group-table tbody th { font-weight: 700; }
+  .group-table tbody td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); }
+}
+
+/* ---------------------------------------------------------------------------
+   MapLibre's own stylesheet, reduced to the rules that matter.
+   Copied verbatim from `maplibre-gl.css` (BSD-3-Clause; `vendor/LICENSE.txt` ships). This
+   project draws its own zoom buttons and renders no MapLibre control, so the rest of the
+   10 KB file matches nothing here. The touch-action rules are kept: dropping them breaks
+   pinch-zoom on a phone, which no desktop check would catch.
+   --------------------------------------------------------------------------- */
+.maplibregl-map { overflow: hidden; position: relative; -webkit-tap-highlight-color: rgb(0 0 0 / 0); }
+
+.maplibregl-canvas { position: absolute; left: 0; top: 0; }
+
+.maplibregl-canvas-container.maplibregl-interactive { cursor: grab; user-select: none; }
+
+.maplibregl-canvas-container.maplibregl-interactive:active { cursor: grabbing; }
+
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate,
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate .maplibregl-canvas { touch-action: pan-x pan-y; }
+
+.maplibregl-canvas-container.maplibregl-touch-drag-pan,
+.maplibregl-canvas-container.maplibregl-touch-drag-pan .maplibregl-canvas { touch-action: pinch-zoom; }
+
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan,
+.maplibregl-canvas-container.maplibregl-touch-zoom-rotate.maplibregl-touch-drag-pan .maplibregl-canvas { touch-action: none; }
+
+.maplibregl-ctrl-bottom-left,
+.maplibregl-ctrl-bottom-right,
+.maplibregl-ctrl-top-left,
+.maplibregl-ctrl-top-right { position: absolute; pointer-events: none; z-index: 2; }
+
+.maplibregl-ctrl-top-left { top: 0; left: 0; }
+
+.maplibregl-ctrl-top-right { top: 0; right: 0; }
+
+.maplibregl-ctrl-bottom-left { bottom: 0; left: 0; }
+
+.maplibregl-ctrl-bottom-right { right: 0; bottom: 0; }
+
+/* A marker, for days that drop one. MapLibre's default marker is an inline-styled SVG with
+   a data: URI, which a strict CSP refuses; this is a plain element with a class, and its
+   shape is geometry in JavaScript. MapLibre writes its own `transform` onto a marker
+   element, so a CSS-rotated teardrop silently renders unrotated — `filter` is a paint
+   property and survives. */
+.map-pin { display: block; filter: drop-shadow(1px 1px 2px rgb(0 0 0 / 45%)); }
+
+.map-pin path { fill: #e8431f; stroke: #fff; stroke-width: 2; }
