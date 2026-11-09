@@ -5,6 +5,14 @@ on one shared base map wearing Windows XP.
 
 No build step. It is static files and one vendored library.
 
+> **The days now live in the webxp project.** The window manager this vendored became its
+> own package, and the challenge moved in on top of it: the thirty days are apps under
+> `apps/`, behind one `30DaysOfMaps` folder icon, and day 2 is `apps/day-02-lines/` with its
+> write-up beside it. What remains here is the base map and the day template, which is where
+> the shared map layer was worked out before it moved to `shared/map/`.
+>
+> Edit day 2 there, not here. Nothing in this repo is a second copy of it any more.
+
 ## Run it
 
 ```
@@ -38,16 +46,13 @@ Three layers. The OS does not know what a map is; the apps do not know how a win
 | `index.html` | The desktop. One icon per day; opening one puts it in the taskbar. |
 | `days/themes.mjs` | The thirty themes. Set `dir` when a day gets a page. |
 | `days/00-base/` | The base map with nothing on it. Start here. |
-| `days/02-lines/` | Day 2. How much of a GPS trace is noise. `docs/gps-noise.md`. |
+| — | Day 2 moved to the webxp project, as `apps/day-02-lines/`. Its write-up moved with it. |
 | `days/_template/` | Copy this to start a day. |
 | `scripts/check.py` | Renders every page in Chrome and fails on a console error. |
 | `scripts/zoom_icon.py` | Captures the desktop icons at 8x, for judging 32 px art. |
-| `scripts/probe_order.py` | Prints the live layer order. `ctx.beforeId` is easy to reason about wrongly. |
-| `scripts/shoot_worm.py` | Captures a quiet and a noisy segment's crossing overlay at one zoom. |
 | `scripts/measure_csp.py` | Measures whether icon art survives a strict Content-Security-Policy. |
 | `scripts/measure_wallpaper.py` | Measures the wallpaper drawn and removed, to set `check.py`'s threshold from data. |
 | `docs/basemap.md` | Basemap sources, their licences, and how to write a day. |
-| `docs/gps-noise.md` | Day 2's method, what was verified against what, and the privacy rules for a Strava export. |
 
 ## A day in four steps
 

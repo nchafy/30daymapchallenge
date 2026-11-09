@@ -61,8 +61,13 @@ def main() -> int:
                   if (!d) return { booted: false };
                   return {
                     booted: true,
-                    programs: d.programs ? d.programs.length : null,
-                    icons: document.querySelectorAll('#webxp .icon').length,
+                    /* `.size`, not `.length`: `programs` is a Map, so `.length` is
+                       `undefined` and this printed nothing on every run. And the icon class
+                       is `desktop-icon`, so `.icon` matched none of them and printed
+                       `icons: 0` — which during a port is exactly the signal someone acts
+                       on. Nothing asserts either, so the script did not fail; it misreported. */
+                    programs: d.programs ? d.programs.size : null,
+                    icons: document.querySelectorAll('#webxp .desktop-icon').length,
                     taskButtons: document.querySelectorAll('#webxp .task-button').length,
                     windows: document.querySelectorAll('#webxp .window').length,
                     titles: [...document.querySelectorAll('#webxp .window-title h1, #webxp .window-title h2')]
@@ -73,14 +78,16 @@ def main() -> int:
             print(f"boot: {state}")
 
             if state.get("booted"):
-                # Open day 2 by its program id, the way a desktop icon would.
+                # Open the base map by its program id, the way a desktop icon would. This was
+                # day 2 until day 2 moved to webxp; the base map is the program this repo
+                # still has.
                 opened = page.evaluate(
-                    """(() => window.webxp.launch('02-lines')
+                    """(() => window.webxp.launch('00-base')
                          .then(() => 'launched')
                          .catch((e) => 'failed: ' + e.message))()""",
                     await_promise=True,
                 )
-                print(f"launch 02-lines: {opened}")
+                print(f"launch 00-base: {opened}")
                 time.sleep(6.0)
                 after = page.evaluate(
                     """(() => {

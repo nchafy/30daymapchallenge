@@ -24,14 +24,15 @@ Nothing the site serves needs Python.
 load-bearing and MUST hold:
 
 - **The chrome is Luna.** Window frame, title bar, taskbar, Start menu, cards,
-  group boxes, bevels. It lives in `os/theme.css` and nowhere else.
+  group boxes, bevels. It lives in `vendor/webxp/theme.css` and nowhere else.
 - **The map is a satnav.** Flat olive land, deep navy water, bright yellow
   arterials. It lives in `SATNAV` in `lib/basemap.mjs` and nowhere else.
 - Neither theme may leak into the other. A map colour MUST NOT appear in the
   chrome; a Luna colour MUST NOT appear in the map.
 
-Colours MUST come from the CSS custom properties at the top of `xp.css`, or from
-`SATNAV`. A new value MUST be justified where it is introduced.
+Colours MUST come from the CSS custom properties in `:root` at the top of
+`vendor/webxp/theme.css`, or from `SATNAV`. A new value MUST be justified where it
+is introduced.
 
 Luna's own palette fails WCAG 2.2 AA in two places — its grey body text and the
 light stop of its close box — and both are corrected. Ratios are noted where they
@@ -45,11 +46,12 @@ water once dropped liberty's water labels to about 1.5:1.
 | The thirty themes, and which have pages | `days/themes.mjs` |
 | The three basemaps, their zoom caps and credits | `BASEMAPS` in `lib/basemap.mjs` |
 | The satnav palette | `SATNAV` in `lib/basemap.mjs` |
-| Luna's colours, bevels and control shapes | `:root` in `os/theme.css` |
-| The day index rows | `renderMenu` in `os/shell.mjs` |
+| Luna's colours, bevels and control shapes | `:root` in `vendor/webxp/theme.css` |
+| The desktop icons and the Start menu | `renderDesktopIcons` and `renderStartMenu` in `vendor/webxp/desktop.mjs` |
 
-The Start menu and the index page render the same list through the same function.
-Two renderers of one list is how they drift, so a third call site MUST reuse it.
+The Start menu and the desktop render the same program list through the same
+builder. Two renderers of one list is how they drift, so a third call site MUST
+reuse it.
 
 ## Invariants that will bite
 
@@ -66,10 +68,13 @@ These were each a real bug. Changing them needs a reason, not a tidy-up.
   from the old style and the real one is skipped — which left satellite with no
   overlay and no error. `createBaseMap` writes a serial into the style's `name`
   and compares identity. MUST NOT be replaced by a flag or a timer.
-- **`.window-body > .map` is specificity, not tidiness.** MapLibre puts
+- **`.map-area > .map` is specificity, not tidiness.** MapLibre puts
   `maplibregl-map` on the container and sets `position: relative`. A bare `.map`
   ties on specificity and loses on source order, `inset: 0` stops applying, and
   the container collapses to 0 px — every tile fetches 200 and draws nowhere.
+  **Count the classes if you touch it.** The names are not the invariant; the
+  count is. This has been broken twice by renaming the selector rather than by
+  editing this rule, both times dropping it to a tie with MapLibre's own.
 - **The pitch gate reads the camera, never a button.** `building-3d` shows at
   ≥12° and hides below 8°. Two thresholds, because one cutoff strobes while a
   drag-pitch sits on it. Extrusion layers are found by
@@ -111,10 +116,17 @@ not mute the palette.
 
 ## Writing a day
 
+**Write it in the webxp project, not here.** The days are apps under its `apps/`,
+and `apps/day-02-lines/` is the worked example. Its `docs/apps.md` is the contract
+and its `shared/map/README.md` is this file's counterpart for the map layer.
+
+What remains here is the base map and `days/_template/program.mjs`, which is where
+the shared map layer was worked out. To add a day *here* anyway:
+
 1. `cp -r days/_template days/07-ten-minute-map`
-2. Replace `NN` and `THEME` in both files.
+2. Replace `NN` and `THEME` in `program.mjs`.
 3. Set `dir` on that day's row in `days/themes.mjs`.
-4. Write the overlay in `map.mjs`.
+4. Register it in `programs.mjs` and write the overlay's `draw`.
 
 `docs/basemap.md` carries the basemap sources, their licences, and what
 `scripts/check.py` asserts.

@@ -14,13 +14,11 @@ import { group, sheet } from './vendor/webxp/webxp.mjs';
 import { DAYS, BASE_ENTRY } from './days/themes.mjs';
 
 import { program as basemapProgram } from './days/00-base/program.mjs';
-import { program as linesProgram } from './days/02-lines/program.mjs';
 
 //: Keyed by the folder name under `days/`, which is also the `dir` in `themes.mjs` and the
 //: program's `id`. One string, three jobs, so there is nothing to keep in step.
 const BUILT = {
   '00-base': basemapProgram,
-  '02-lines': linesProgram,
 };
 
 /** The window a day gets before it has been written. */

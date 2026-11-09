@@ -9,7 +9,7 @@
  */
 export const DAYS = [
   { day: 1, theme: 'Points', dir: null },
-  { day: 2, theme: 'Lines', dir: '02-lines' },
+  { day: 2, theme: 'Lines' },
   { day: 3, theme: 'Polygons', dir: null },
   { day: 4, theme: 'Clusters', dir: null },
   { day: 5, theme: 'Senses: Sight', dir: null },

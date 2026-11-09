@@ -6,7 +6,7 @@ screenshots/
 
 # Real Strava exports and anything built from them. An activity trace is a record of
 # where someone lives and when they are not home, so it does not go in a public repo.
-# `days/02-lines/fixture/` and the `data/` built from it are synthetic and are committed,
+# The synthetic fixture moved to webxp with the day; this rule remains because the real
 # so the page still renders for someone without the export.
 strava/
 strava-export/

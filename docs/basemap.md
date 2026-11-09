@@ -1,7 +1,7 @@
 # The base map
 
 Three basemaps, one shell, and a `draw` callback. Everything a day needs is in
-`lib/basemap.mjs` and `os/shell.mjs`; the era is in `os/theme.css` and
+`lib/basemap.mjs`; the era is in `vendor/webxp/theme.css` and
 nowhere else.
 
 ## The three basemaps
@@ -109,8 +109,8 @@ Two of the three need reading before this goes anywhere public.
   ([usage](https://opentopomap.org/about#verwendung)). Panning a map is not bulk
   downloading; a scripted sweep of a city at zoom 17 would be.
 
-Attribution is rendered by `basemap.mjs` into `#map-attrib`, not by MapLibre's own
-control, and `#map-attrib` lives in the window's **status bar** — outside the map, as a
+Attribution is rendered by `basemap.mjs` into `.map-attrib`, not by MapLibre's own
+control, and `.map-attrib` lives in the window's **status bar** — outside the map, as a
 sibling of it rather than a layer over it.
 
 That placement is the whole point. It used to float over the canvas at `bottom: 0;
@@ -125,11 +125,14 @@ actually hit here?" — is the one a `visibility` or `z-index` comparison does n
 
 ## Writing a day
 
+The days moved to the webxp project; write one there, following `apps/day-02-lines/`.
+To add one here anyway:
+
 1. `cp -r days/_template days/07-ten-minute-map`
-2. Replace `NN` and `THEME` in `index.html` (four places) and `map.mjs` (two).
+2. Replace `NN` and `THEME` in `program.mjs`.
 3. Set `dir: '07-ten-minute-map'` on day 7's row in `days/themes.mjs`. Until you do,
    the index renders that day as plain text rather than a dead link.
-4. Write the overlay in `map.mjs`.
+4. Register it in `programs.mjs` and write the overlay's `draw`.
 
 ### `draw` is called once per basemap, not once per page
 
@@ -169,7 +172,7 @@ Loads every page in the Chrome already on the machine, screenshots each at 500 p
 - the index lists 31 rows (the base map plus thirty days);
 - the map container is larger than 200 px square — a collapsed container fetches every
   tile, reports the style loaded and draws nothing, which is what MapLibre's own
-  `position: relative` did to `.map` until `xp.css` started winning on specificity;
+  `position: relative` did to `.map` until `lib/map.css` started winning on specificity;
 - each basemap's button really switches it, and the choice survives a reload;
 - the day's overlay layers exist after every switch, and the clicked point is still
   rendered — the `draw`-not-re-run regression;
